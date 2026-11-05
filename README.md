@@ -1,184 +1,140 @@
-<p align="center">
-  <img src="docs/screenshots/01-home.png" alt="Freedom Music — Windows" width="58%" />
-  &nbsp;
-  <img src="docs/screenshots/Home.jpg" alt="Freedom Music — Android" width="28%" />
-</p>
+<div align="center">
 
-<h1 align="center">Freedom Music</h1>
+<img src="docs/screenshots/01-home.png" alt="Freedom Music на Windows" width="720" />
 
-<p align="center">
-  <strong>Локальный плеер для Windows и Android</strong><br/>
-  Музыка остаётся у вас. Метаданные живут в файлах.
-</p>
+<br/><br/>
 
-<p align="center">
-  <a href="https://github.com/TheSadFreedom/freedom-music/releases/latest"><img src="https://img.shields.io/github/v/release/TheSadFreedom/freedom-music?style=flat-square&label=release&color=3D8B6E" alt="release" /></a>
-  <a href="https://github.com/TheSadFreedom/freedom-music/releases"><img src="https://img.shields.io/github/downloads/TheSadFreedom/freedom-music/total?style=flat-square&color=5CBA92" alt="downloads" /></a>
-  <img src="https://img.shields.io/badge/Windows-10%2F11-0C1210?style=flat-square" alt="Windows" />
-  <img src="https://img.shields.io/badge/Android-8%2B-0C1210?style=flat-square" alt="Android" />
-</p>
+# FREEDOM MUSIC
 
-<p align="center">
-  <a href="https://github.com/TheSadFreedom/freedom-music/releases/latest"><strong>Скачать последний релиз</strong></a>
-  ·
-  <a href="#установка">Установка</a>
-  ·
-  <a href="#возможности">Возможности</a>
-</p>
+**Локальный плеер.** Музыка на вашем диске — метаданные в файлах.
 
----
+<br/>
 
-## Что это
+<a href="https://github.com/TheSadFreedom/freedom-music/releases/latest">
+  <img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C-Windows%20%26%20Android-3D8B6E?style=for-the-badge&labelColor=0C1210" alt="Скачать" />
+</a>
 
-Freedom Music — плеер для вашей папки с MP3. Без облачной библиотеки и подписок: название, артисты, альбом, год, продюсер и текст читаются из тегов и туда же записываются. Прослушивания, плейлисты и фото артистов хранятся рядом с приложением.
+<br/><br/>
 
-Два клиента одной идеи: **Windows** и **Android**. Данные можно переносить экспортом между ними (без самих аудиофайлов).
+<img src="https://img.shields.io/github/v/release/TheSadFreedom/freedom-music?style=flat-square&color=5CBA92&labelColor=0C1210" alt="version" />
+<img src="https://img.shields.io/badge/Windows-10%2F11-0C1210?style=flat-square&color=15201C" alt="Windows" />
+<img src="https://img.shields.io/badge/Android-8%2B-0C1210?style=flat-square&color=15201C" alt="Android" />
+<img src="https://img.shields.io/github/downloads/TheSadFreedom/freedom-music/total?style=flat-square&color=3D8B6E&labelColor=0C1210" alt="downloads" />
+
+<br/><br/>
+
+<img src="docs/screenshots/Home.jpg" alt="Главная на Android" height="420" />
+&nbsp;&nbsp;
+<img src="docs/screenshots/Artists.jpg" alt="Артисты на Android" height="420" />
+&nbsp;&nbsp;
+<img src="docs/screenshots/Playlists.jpg" alt="Плейлисты на Android" height="420" />
+
+</div>
 
 ---
 
-## Возможности
+## Идея
 
-### Артисты и продюсеры
+Без облака и подписок. Положите MP3 в папку — Freedom Music читает теги, пишет правки обратно в файлы и считает прослушивания локально.
 
-<table>
-  <tr>
-    <td align="center" width="55%"><strong>Windows</strong></td>
-    <td align="center" width="45%"><strong>Android</strong></td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <img src="docs/screenshots/02-artists.png" alt="Артисты · Windows" />
-      <p><strong>Артисты</strong> — карточки по прослушиваниям, альбомы и синглы, объединение имён без порчи тегов.</p>
-    </td>
-    <td valign="top" align="center">
-      <img src="docs/screenshots/Artists.jpg" alt="Артисты · Android" width="280" />
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <img src="docs/screenshots/03-producers.png" alt="Продюсеры · Windows" />
-      <p><strong>Продюсеры</strong> — битмейкеры из метаданных, топ и связи с артистами.</p>
-    </td>
-    <td valign="top" align="center">
-      <img src="docs/screenshots/Prod.jpg" alt="Продюсеры · Android" width="280" />
-    </td>
-  </tr>
-</table>
+Один вкус на двух платформах. Экспорт переносит плейлисты, историю и фото — сами треки остаются у вас.
 
-### Чарт и календарь
+---
 
-<table>
-  <tr>
-    <td align="center" width="55%"><strong>Windows</strong></td>
-    <td align="center" width="45%"><strong>Android</strong></td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <img src="docs/screenshots/04-chart.png" alt="Чарт · Windows" />
-      <p><strong>Чарт</strong> — треки и альбомы за всё время, динамика мест.</p>
-    </td>
-    <td valign="top" align="center">
-      <img src="docs/screenshots/Chart.jpg" alt="Чарт · Android" width="280" />
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <img src="docs/screenshots/05-calendar.png" alt="Календарь · Windows" />
-      <p><strong>Календарь</strong> — релизы библиотеки по годам.</p>
-    </td>
-    <td valign="top" align="center">
-      <img src="docs/screenshots/Calendar.jpg" alt="Календарь · Android" width="280" />
-    </td>
-  </tr>
-</table>
+## Галерея
 
-### Плейлисты
+<div align="center">
 
-<table>
-  <tr>
-    <td align="center" width="55%"><strong>Windows</strong></td>
-    <td align="center" width="45%"><strong>Android</strong></td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <img src="docs/screenshots/06-playlists.png" alt="Плейлисты · Windows" />
-    </td>
-    <td valign="top" align="center">
-      <img src="docs/screenshots/Playlists.jpg" alt="Плейлисты · Android" width="280" />
-    </td>
-  </tr>
-</table>
+| | |
+|:---:|:---:|
+| <img src="docs/screenshots/02-artists.png" alt="Артисты · Windows" width="520" /><br/><sub>Артисты · Windows</sub> | <img src="docs/screenshots/Artists.jpg" alt="Артисты · Android" width="220" /><br/><sub>Артисты · Android</sub> |
+| <img src="docs/screenshots/03-producers.png" alt="Продюсеры · Windows" width="520" /><br/><sub>Продюсеры · Windows</sub> | <img src="docs/screenshots/Prod.jpg" alt="Продюсеры · Android" width="220" /><br/><sub>Продюсеры · Android</sub> |
+| <img src="docs/screenshots/04-chart.png" alt="Чарт · Windows" width="520" /><br/><sub>Чарт · Windows</sub> | <img src="docs/screenshots/Chart.jpg" alt="Чарт · Android" width="220" /><br/><sub>Чарт · Android</sub> |
+| <img src="docs/screenshots/05-calendar.png" alt="Календарь · Windows" width="520" /><br/><sub>Календарь · Windows</sub> | <img src="docs/screenshots/Calendar.jpg" alt="Календарь · Android" width="220" /><br/><sub>Календарь · Android</sub> |
+| <img src="docs/screenshots/06-playlists.png" alt="Плейлисты · Windows" width="520" /><br/><sub>Плейлисты · Windows</sub> | <img src="docs/screenshots/Playlists.jpg" alt="Плейлисты · Android" width="220" /><br/><sub>Плейлисты · Android</sub> |
 
-<p align="center">Свои подборки и системные: новинки, пробелы в метаданных, корзина.</p>
+</div>
 
-Также:
+---
 
-- **Плеер** — очередь, EQ, тексты (в т.ч. с таймкодами), редактор метаданных
-- **Браузер** (Windows) — поиск и замена треков из сети
-- **Экспорт / импорт** — плейлисты, история, фото, объединения, настройки
+## Что умеет
+
+| | |
+|---|---|
+| **Библиотека** | Артисты, продюсеры, чарт, календарь релизов |
+| **Плейлисты** | Свои и системные: новинки, метаданные, корзина |
+| **Плеер** | Очередь, EQ, тексты с таймкодами, редактор тегов |
+| **Браузер** | Поиск и замена треков из сети *(Windows)* |
+| **Синхронизация** | Экспорт / импорт между Windows и Android |
 
 ---
 
 ## Установка
 
-### Windows
+<details open>
+<summary><strong>Windows</strong></summary>
 
-1. Скачайте `FreedomMusic-*-windows-x64.zip` со [страницы релизов](https://github.com/TheSadFreedom/freedom-music/releases/latest).
-2. Распакуйте **всю** папку (не один `.exe`).
-3. Запустите `Freedom Music.exe`.
-4. Положите MP3 в папку `music` рядом с программой (создаётся при первом запуске).
-5. В **Настройках** нажмите **Поиск новых** или **Сканировать папку music**.
+<br/>
 
-Нужны Windows 10/11 x64 и [VC++ Redistributable 2015–2022 (x64)](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
+1. Скачайте `FreedomMusic-*-windows-x64.zip` из [релизов](https://github.com/TheSadFreedom/freedom-music/releases/latest)
+2. Распакуйте **всю** папку — не один `.exe`
+3. Запустите `Freedom Music.exe`
+4. Положите MP3 в папку `music` рядом с программой
+5. В настройках — **Поиск новых** или **Сканировать папку music**
 
-### Android
+Нужны Windows 10/11 ×64 и [VC++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
 
-1. Скачайте `FreedomMusic-*-android.apk` со [страницы релизов](https://github.com/TheSadFreedom/freedom-music/releases/latest).
-2. Разрешите установку из неизвестных источников для файла.
-3. Укажите доступ к музыке и отсканируйте библиотеку в настройках.
+</details>
 
----
+<details open>
+<summary><strong>Android</strong></summary>
 
-## Данные и приватность
+<br/>
 
-| | |
-|---|---|
-| Аудио | Остаётся на устройстве, в облако приложения не уходит |
-| Тексты песен | Пишутся в **теги файла** (и дублируются локально в базе) |
-| Экспорт | Плейлисты, прослушивания, фото, объединения, снимки чарта, флаги настроек |
-| Не в экспорте | Сами MP3, пути к файлам, EQ и очередь |
+1. Скачайте `FreedomMusic-*-android.apk` из [релизов](https://github.com/TheSadFreedom/freedom-music/releases/latest)
+2. Разрешите установку из этого файла
+3. Дайте доступ к музыке и отсканируйте библиотеку
 
-Импорт на другую платформу: сначала просканируйте те же треки — списки и история цепляются по ключу артист+название.
+</details>
 
 ---
 
-## Структура репозитория
+## Данные
+
+| В файлах | В приложении | В экспорте |
+|---|---|---|
+| Теги, обложки, тексты | Плейлисты, прослушивания, фото | Плейлисты, история, фото, объединения, настройки |
+| | | **Не входит:** MP3, пути, EQ, очередь |
+
+На другой платформе сначала просканируйте те же треки — связи идут по артисту и названию.
+
+---
+
+<details>
+<summary><strong>Для разработчиков</strong></summary>
+
+<br/>
 
 ```
 freedom-music/
-├── apps/
-│   ├── windows/     # Flutter · Windows
-│   └── android/     # Flutter · Android
-├── docs/screenshots/
-└── README.md
+├── apps/windows
+├── apps/android
+└── docs/screenshots
 ```
 
-### Сборка из исходников
-
-Нужен [Flutter](https://docs.flutter.dev/get-started/install) stable.
-
 ```bash
-# Windows
 cd apps/windows && flutter pub get && flutter build windows --release
-
-# Android
 cd apps/android && flutter pub get && flutter build apk --release
 ```
 
-Release-подпись Android: локальные `android/key.properties` и keystore — в git не входят.
+Android release-подпись: локальные `key.properties` и keystore — не в git.
 
----
+</details>
 
-<p align="center">
-  <sub>Сделано для тех, кто хранит музыку у себя.</sub>
-</p>
+<br/>
+
+<div align="center">
+
+<sub>Сделано для тех, кто хранит музыку у себя.</sub>
+
+</div>
