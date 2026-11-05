@@ -191,8 +191,8 @@ class SettingsService extends ChangeNotifier {
     final out = <String, String>{};
     for (final key in _prefs.getKeys()) {
       if (!key.startsWith(_releaseCoverPrefix)) continue;
-      final trackKey = _prefs.getString(key);
-      if (trackKey == null || trackKey.isEmpty) continue;
+      final trackKey = _prefs.get(key);
+      if (trackKey is! String || trackKey.isEmpty) continue;
       out[key.substring(_releaseCoverPrefix.length)] = trackKey;
     }
     return out;
@@ -239,9 +239,12 @@ class SettingsService extends ChangeNotifier {
   Map<String, String> exportArtistPhotoPaths() {
     final out = <String, String>{};
     for (final key in _prefs.getKeys()) {
+      // `_artistPhotoManualPrefix` also starts with `_artistPhotoPrefix`;
+      // those keys store bools and must not be read via getString.
       if (!key.startsWith(_artistPhotoPrefix)) continue;
-      final path = _prefs.getString(key);
-      if (path == null || path.isEmpty) continue;
+      if (key.startsWith(_artistPhotoManualPrefix)) continue;
+      final path = _prefs.get(key);
+      if (path is! String || path.isEmpty) continue;
       out[key.substring(_artistPhotoPrefix.length)] = path;
     }
     return out;
@@ -249,7 +252,8 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> replaceArtistPhotoPaths(Map<String, String> artistToPath) async {
     for (final key in _prefs.getKeys().toList()) {
-      if (key.startsWith(_artistPhotoPrefix)) {
+      if (key.startsWith(_artistPhotoPrefix) ||
+          key.startsWith(_artistPhotoManualPrefix)) {
         await _prefs.remove(key);
       }
     }
@@ -268,7 +272,10 @@ class SettingsService extends ChangeNotifier {
     for (final key in _prefs.getKeys()) {
       if (!key.startsWith('chart_snap_')) continue;
       final period = key.substring('chart_snap_'.length);
-      out[period] = _prefs.getStringList(key) ?? const [];
+      final raw = _prefs.get(key);
+      if (raw is List) {
+        out[period] = [for (final line in raw) line.toString()];
+      }
     }
     return out;
   }
