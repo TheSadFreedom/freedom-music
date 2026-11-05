@@ -16,7 +16,6 @@ import '../widgets/ambient_backdrop.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/playing_track.dart';
-import '../widgets/screen_title.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
@@ -29,6 +28,7 @@ import '../widgets/track_tile.dart';
 import 'genres_screen.dart';
 
 const _yellow = Color(0xFFFFDB4D);
+const _kPlaylistsAccent = Color(0xFFB8A0E8);
 
 class PlaylistsScreen extends StatelessWidget {
   const PlaylistsScreen({super.key});
@@ -39,93 +39,100 @@ class PlaylistsScreen extends StatelessWidget {
     final system = _systemPlaylists(library.playlists);
     final mine = library.playlists.where((p) => !p.isSystem).toList();
     final genres = library.tracksByGenre();
+    final total = system.length + mine.length + genres.length;
     return Stack(
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const ScreenTitle(title: 'Плейлисты'),
+            _PlaylistsHeroHeader(
+              subtitle: total == 0
+                  ? 'подборки и жанры'
+                  : '$total · свои, жанры и системные',
+            ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 72),
-            children: [
-              _SectionTitle(
-                title: 'Системные',
-                onTap: () => _openGrid(
-                  context,
-                  title: 'Системные',
-                  items: [
-                    for (final pl in system)
-                      _itemForPlaylist(
-                        context,
-                        pl,
-                        count: library.metaPlaylistTracks(pl)?.length ??
-                            pl.trackCount,
-                      ),
-                  ],
-                ),
-              ),
-              _CoverCarousel(
-                items: [
-                  for (final pl in system)
-                    _itemForPlaylist(
-                      context,
-                      pl,
-                      count: library.metaPlaylistTracks(pl)?.length ??
-                          pl.trackCount,
-                    ),
-                ],
-              ),
-              _SectionTitle(
-                title: 'Мои',
-                onTap: mine.isEmpty
-                    ? null
-                    : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const _MyPlaylistsScreen(),
-                          ),
-                        ),
-              ),
-              if (mine.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-                  child: Text(
-                    'Своих плейлистов пока нет.',
-                    style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+                padding: const EdgeInsets.only(bottom: 88),
+                children: [
+                  _SectionTitle(
+                    title: 'Мои',
+                    subtitle: mine.isEmpty ? null : '${mine.length}',
+                    onTap: mine.isEmpty
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const _MyPlaylistsScreen(),
+                              ),
+                            ),
                   ),
-                )
-              else
-                _CoverCarousel(
-                  items: [
-                    for (final pl in mine)
-                      _itemForPlaylist(
-                        context,
-                        pl,
-                        count: pl.trackCount,
-                        onRename: () => _rename(context, pl),
-                        onDelete: () => library.deletePlaylist(pl.id),
+                  if (mine.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+                      child: _PlaylistsEmptyHint(
+                        text: 'Своих плейлистов пока нет — создайте первый.',
                       ),
+                    )
+                  else
+                    _CoverCarousel(
+                      items: [
+                        for (final pl in mine)
+                          _itemForPlaylist(
+                            context,
+                            pl,
+                            count: pl.trackCount,
+                            onRename: () => _rename(context, pl),
+                            onDelete: () => library.deletePlaylist(pl.id),
+                          ),
+                      ],
+                    ),
+                  if (genres.isNotEmpty) ...[
+                    _SectionTitle(
+                      title: 'Жанры',
+                      subtitle: '${genres.length}',
+                      onTap: () => _openGrid(
+                        context,
+                        title: 'Жанры',
+                        items: [
+                          for (final entry in genres.entries)
+                            _itemForGenre(context, entry.key, entry.value),
+                        ],
+                      ),
+                    ),
+                    _CoverCarousel(
+                      items: [
+                        for (final entry in genres.entries)
+                          _itemForGenre(context, entry.key, entry.value),
+                      ],
+                    ),
                   ],
-                ),
-              if (genres.isNotEmpty) ...[
-                _SectionTitle(
-                  title: 'Жанры',
-                  onTap: () => _openGrid(
-                    context,
-                    title: 'Жанры',
+                  _SectionTitle(
+                    title: 'Системные',
+                    subtitle: '${system.length}',
+                    onTap: () => _openGrid(
+                      context,
+                      title: 'Системные',
+                      items: [
+                        for (final pl in system)
+                          _itemForPlaylist(
+                            context,
+                            pl,
+                            count: library.metaPlaylistTracks(pl)?.length ??
+                                pl.trackCount,
+                          ),
+                      ],
+                    ),
+                  ),
+                  _CoverCarousel(
                     items: [
-                      for (final entry in genres.entries)
-                        _itemForGenre(context, entry.key, entry.value),
+                      for (final pl in system)
+                        _itemForPlaylist(
+                          context,
+                          pl,
+                          count: library.metaPlaylistTracks(pl)?.length ??
+                              pl.trackCount,
+                        ),
                     ],
                   ),
-                ),
-                _CoverCarousel(
-                  items: [
-                    for (final entry in genres.entries)
-                      _itemForGenre(context, entry.key, entry.value),
-                  ],
-                ),
-              ],
                 ],
               ),
             ),
@@ -145,12 +152,12 @@ class PlaylistsScreen extends StatelessWidget {
       ..sort((a, b) {
         int rank(Playlist p) {
           if (p.isNew) return 0;
-          if (p.isIncomplete) return 1;
-          if (p.isNoProducer) return 2;
-          if (p.isMissingGenre) return 3;
-          if (p.isMissingLyrics) return 4;
-          if (p.isMetadataReady) return 5;
-          if (p.isTrash) return 6;
+          if (p.isTrash) return 1;
+          if (p.isIncomplete) return 2;
+          if (p.isNoProducer) return 3;
+          if (p.isMissingGenre) return 4;
+          if (p.isMissingLyrics) return 5;
+          if (p.isMetadataReady) return 6;
           return 7;
         }
 
@@ -379,36 +386,173 @@ class _CoverItem {
   final VoidCallback? onDelete;
 }
 
+class _PlaylistsHeroHeader extends StatelessWidget {
+  const _PlaylistsHeroHeader({required this.subtitle});
+
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final canPop = Navigator.of(context).canPop();
+    return Padding(
+      padding: EdgeInsets.fromLTRB(canPop ? 4 : 20, 10, 12, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (canPop)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 28),
+              child: IconButton(
+                tooltip: 'Назад',
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: AppTheme.paper,
+                ),
+              ),
+            ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ПЛЕЙЛИСТЫ',
+                  style: GoogleFonts.syne(
+                    color: _kPlaylistsAccent.withValues(alpha: 0.9),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 3.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Подборки',
+                  style: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    height: 1.05,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaylistsEmptyHint extends StatelessWidget {
+  const _PlaylistsEmptyHint({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        gradient: LinearGradient(
+          colors: [
+            _kPlaylistsAccent.withValues(alpha: 0.08),
+            Colors.white.withValues(alpha: 0.02),
+          ],
+        ),
+      ),
+      child: Text(
+        text,
+        style: GoogleFonts.figtree(
+          color: AppTheme.paperMuted,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, this.onTap});
+  const _SectionTitle({
+    required this.title,
+    this.subtitle,
+    this.onTap,
+  });
 
   final String title;
+  final String? subtitle;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+      padding: const EdgeInsets.fromLTRB(20, 16, 16, 10),
       child: InkWell(
         mouseCursor:
             onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Row(
-          children: [
-            Text(
-              title,
-              style: GoogleFonts.syne(
-                color: AppTheme.paper,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: _kPlaylistsAccent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            if (onTap != null) ...[
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right, color: AppTheme.paperMuted),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: GoogleFonts.syne(
+                  color: AppTheme.paper,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    subtitle!,
+                    style: GoogleFonts.figtree(
+                      color: AppTheme.paperMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              if (onTap != null)
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: _kPlaylistsAccent.withValues(alpha: 0.75),
+                ),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -423,14 +567,14 @@ class _CoverCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 236,
+      height: 248,
       child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
         itemBuilder: (context, index) {
-          return _CoverCard(item: items[index]);
+          return _CoverCard(item: items[index], featured: index == 0);
         },
       ),
     );
@@ -438,15 +582,21 @@ class _CoverCarousel extends StatelessWidget {
 }
 
 class _CoverCard extends StatelessWidget {
-  const _CoverCard({required this.item, this.width = 148});
+  const _CoverCard({
+    required this.item,
+    this.width = 148,
+    this.featured = false,
+  });
 
   final _CoverItem item;
   final double? width;
+  final bool featured;
 
   @override
   Widget build(BuildContext context) {
     final path = item.coverPath;
     final systemKind = item.systemKind;
+    final radius = featured ? 16.0 : 12.0;
     Widget cover;
     if (path != null && File(path).existsSync()) {
       cover = fileCover(
@@ -463,7 +613,7 @@ class _CoverCard extends StatelessWidget {
         color: AppTheme.inkLift,
         child: Icon(
           item.icon ?? Icons.queue_music,
-          color: item.iconColor ?? AppTheme.mossBright,
+          color: item.iconColor ?? _kPlaylistsAccent,
           size: 40,
         ),
       );
@@ -479,7 +629,7 @@ class _CoverCard extends StatelessWidget {
     return InkWell(
       mouseCursor: SystemMouseCursors.click,
       onTap: item.onOpen,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
         width: width,
         child: Column(
@@ -489,17 +639,24 @@ class _CoverCard extends StatelessWidget {
               children: [
                 Container(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(radius),
+                    border: featured
+                        ? Border.all(
+                            color: _kPlaylistsAccent.withValues(alpha: 0.35),
+                          )
+                        : null,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 14,
+                        color: featured
+                            ? _kPlaylistsAccent.withValues(alpha: 0.18)
+                            : Colors.black.withValues(alpha: 0.35),
+                        blurRadius: featured ? 18 : 14,
                         offset: const Offset(0, 6),
                       ),
                     ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(radius),
                     child: AspectRatio(aspectRatio: 1, child: cover),
                   ),
                 ),
@@ -562,7 +719,7 @@ class _CoverCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.figtree(
-                color: AppTheme.paperMuted,
+                color: AppTheme.paperMuted.withValues(alpha: 0.85),
                 fontSize: 12,
               ),
             ),
@@ -664,18 +821,37 @@ class _NewPlaylistButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onPressed,
-      tooltip: 'Создать плейлист',
-      mouseCursor: SystemMouseCursors.click,
-      style: IconButton.styleFrom(
-        backgroundColor: _yellow,
-        foregroundColor: Colors.black,
-        minimumSize: const Size(44, 44),
-        fixedSize: const Size(44, 44),
-        shape: const CircleBorder(),
+    return Material(
+      color: Colors.transparent,
+      elevation: 6,
+      shadowColor: _kPlaylistsAccent.withValues(alpha: 0.45),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onPressed,
+        customBorder: const CircleBorder(),
+        mouseCursor: SystemMouseCursors.click,
+        child: Ink(
+          width: 52,
+          height: 52,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFD4C4F5),
+                _kPlaylistsAccent,
+                Color(0xFF8E74C8),
+              ],
+            ),
+          ),
+          child: const Icon(
+            Icons.add_rounded,
+            color: Color(0xFF1A1424),
+            size: 28,
+          ),
+        ),
       ),
-      icon: const Icon(Icons.add, size: 24),
     );
   }
 }
