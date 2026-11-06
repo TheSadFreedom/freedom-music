@@ -45,3 +45,9 @@ Thumbs.db
 
 # Local scratch
 **/.nuget_scratch/
+
+# Google OAuth / sync secrets (never commit)
+**/secrets/
+**/.env
+**/.env.*
+!**/.env.example
