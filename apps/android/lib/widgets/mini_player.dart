@@ -33,7 +33,7 @@ class MiniPlayer extends StatelessWidget {
         key: barKey,
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
         child: Material(
-          color: const Color(0xE61A1A1A),
+          color: const Color(0xF71A1A1A),
           elevation: 14,
           shadowColor: Colors.black.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(16),

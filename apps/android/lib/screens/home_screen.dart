@@ -20,7 +20,7 @@ import '../widgets/home_hero.dart';
 import '../widgets/playing_track.dart';
 import '../widgets/playlist_mosaic.dart';
 import '../widgets/system_playlist_icon.dart';
-import '../widgets/track_meta_links.dart';
+import '../widgets/marquee_text.dart';
 import '../widgets/track_title_line.dart';
 import '../widgets/track_overflow_menu.dart';
 import 'playlists_screen.dart';
@@ -31,12 +31,12 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
 enum _SearchFilter { all, tracks, artists, producers, albums, playlists }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   String _query = '';
@@ -52,10 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _clearSearch() {
+  /// Clears the home search field and results (e.g. re-tap Home tab).
+  void clearSearch() {
     _searchTimer?.cancel();
     _searchController.clear();
     _searchFocus.unfocus();
+    if (!mounted) return;
     setState(() {
       _query = '';
       _appliedQuery = '';
@@ -113,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   _filter = _SearchFilter.all;
                 });
               },
-              onBack: _clearSearch,
+              onBack: clearSearch,
             ),
           ),
           if (searching) ...[
@@ -505,17 +507,23 @@ class _NowPlaying extends StatelessWidget {
       );
     }
 
+    final titleStyle = GoogleFonts.syne(
+      color: AppTheme.paper,
+      fontSize: 17,
+      fontWeight: FontWeight.w700,
+    );
+    final artistStyle = GoogleFonts.figtree(
+      color: AppTheme.paperMuted,
+      fontSize: 13,
+    );
     return TrackContextMenu(
       actions: standardTrackActions(context, track),
       child: Row(
         key: ValueKey(track.trackKey),
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
         children: [
           ClipRRect(borderRadius: BorderRadius.circular(10), child: cover),
           const SizedBox(width: 14),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 280),
+          Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,17 +537,16 @@ class _NowPlaying extends StatelessWidget {
                     letterSpacing: 1.4,
                   ),
                 ),
-                TrackMetaLinks(
-                  track: track,
-                  titleStyle: GoogleFonts.syne(
-                    color: AppTheme.paper,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  artistStyle: GoogleFonts.figtree(
-                    color: AppTheme.paperMuted,
-                    fontSize: 13,
-                  ),
+                MarqueeText(
+                  text: track.displayTitle,
+                  style: titleStyle,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  track.displayArtist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: artistStyle,
                 ),
               ],
             ),

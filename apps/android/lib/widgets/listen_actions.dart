@@ -68,7 +68,7 @@ class ListenActions extends StatelessWidget {
     ];
 
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: center ? MainAxisSize.max : MainAxisSize.min,
       mainAxisAlignment:
           center ? MainAxisAlignment.center : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.center,

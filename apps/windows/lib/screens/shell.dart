@@ -41,6 +41,8 @@ class _AppShellState extends State<AppShell> {
     (_) => GlobalKey<NavigatorState>(),
   );
 
+  final GlobalKey<HomeScreenState> _homeKey = GlobalKey<HomeScreenState>();
+
   @override
   void initState() {
     super.initState();
@@ -105,7 +107,7 @@ class _AppShellState extends State<AppShell> {
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
-      0 => const HomeScreen(),
+      0 => HomeScreen(key: _homeKey),
       1 => const ArtistsScreen(),
       2 => const ArtistsScreen(producers: true),
       3 => const ChartScreen(),
@@ -147,6 +149,7 @@ class _AppShellState extends State<AppShell> {
     final firstVisit = _openedTabs.add(i);
     if (i == _index) {
       _navKeys[i].currentState?.popUntil((r) => r.isFirst);
+      if (i == 0) _homeKey.currentState?.clearSearch();
       if (firstVisit) setState(() {});
       return;
     }

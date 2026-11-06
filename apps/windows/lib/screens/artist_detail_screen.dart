@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../utils/image_pick.dart';
 import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/app_bottom_sheet.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/playing_track.dart';
@@ -23,24 +25,7 @@ import '../widgets/track_meta_links.dart';
 import 'release_detail_screen.dart';
 import 'release_metadata_editor_screen.dart';
 
-Map<String, List<Track>> _artistsIn(
-  List<Track> source,
-  LibraryService library,
-) {
-  final map = <String, List<Track>>{};
-  final labels = <String, String>{};
-  for (final track in source) {
-    for (final name in track.artists) {
-      final card = library.artistCardName(name);
-      final label = labels.putIfAbsent(card.toLowerCase(), () => card);
-      final list = map.putIfAbsent(label, () => []);
-      if (!list.any((existing) => existing.trackKey == track.trackKey)) {
-        list.add(track);
-      }
-    }
-  }
-  return map;
-}
+const _kYellow = Color(0xFFFFDB4D);
 
 /// Yandex Music–inspired artist page.
 class ArtistDetailScreen extends StatefulWidget {
@@ -52,7 +37,6 @@ class ArtistDetailScreen extends StatefulWidget {
     required this.chartRank,
     required this.trackPlayCounts,
     this.byProducer = false,
-    this.battleOnly = false,
   });
 
   final String artist;
@@ -62,21 +46,14 @@ class ArtistDetailScreen extends StatefulWidget {
   final Map<String, int> trackPlayCounts;
   final bool byProducer;
 
-  /// Legacy battles page: only Battle-Rap tracks.
-  final bool battleOnly;
-
   @override
   State<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
 
 class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
-  List<Track> _genrePool(LibraryService library) {
-    return widget.battleOnly ? library.battleTracks : library.catalogTracks;
-  }
-
   List<Track> _liveTracks(LibraryService library) {
     final want = widget.artist.toLowerCase();
-    final live = _genrePool(library)
+    final live = library.catalogTracks
         .where(
           (t) => widget.byProducer
               ? producerNames(t.producer).any(
@@ -90,10 +67,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
         )
         .toList(growable: false);
     if (live.isNotEmpty) return live;
-    return [
-      for (final track in widget.tracks)
-        if (!widget.battleOnly || track.isBattle) track,
-    ];
+    return widget.tracks;
   }
 
   List<_ProducerCollab> _collaborations(
@@ -180,11 +154,8 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
   Future<void> _mergePerson(BuildContext context) async {
     final library = context.read<LibraryService>();
     final producers = widget.byProducer;
-    final grouped = producers
-        ? library.tracksByProducer()
-        : widget.battleOnly
-            ? _artistsIn(library.battleTracks, library)
-            : library.tracksByArtist();
+    final grouped =
+        producers ? library.tracksByProducer() : library.tracksByArtist();
     final others = grouped
         .keys
         .where((n) => n.toLowerCase() != widget.artist.toLowerCase())
@@ -272,11 +243,8 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     }
     if (!context.mounted) return;
 
-    final byArtist = producers
-        ? library.tracksByProducer()
-        : widget.battleOnly
-            ? _artistsIn(library.battleTracks, library)
-            : library.tracksByArtist();
+    final byArtist =
+        producers ? library.tracksByProducer() : library.tracksByArtist();
     var tracks = <Track>[];
     for (final e in byArtist.entries) {
       if (e.key.toLowerCase() == widget.artist.toLowerCase()) {
@@ -301,17 +269,113 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           chartRank: widget.chartRank,
           trackPlayCounts: counts,
           byProducer: widget.byProducer,
-          battleOnly: widget.battleOnly,
         ),
       ),
     );
   }
 
   Future<void> _pickPhoto(BuildContext context) async {
+    final source = await showAppBottomSheet<String>(
+      context: context,
+      title: 'Загрузить фото',
+      buildChildren: (sheetCtx) => [
+        SheetRow(
+          title: 'С устройства',
+          subtitle: 'Файл с диска',
+          leadingIcon: Icons.photo_library_outlined,
+          onTap: () => Navigator.pop(sheetCtx, 'device'),
+        ),
+        SheetRow(
+          title: 'По ссылке',
+          subtitle: 'Скачать изображение из интернета',
+          leadingIcon: Icons.link_rounded,
+          onTap: () => Navigator.pop(sheetCtx, 'url'),
+        ),
+      ],
+    );
+    if (source == null || !context.mounted) return;
+
     final library = context.read<LibraryService>();
-    final bytes = await pickImageBytes();
+    Uint8List? bytes;
+    if (source == 'device') {
+      bytes = await pickImageBytes();
+    } else if (source == 'url') {
+      final url = await _askImageUrl(context);
+      if (url == null || url.trim().isEmpty || !context.mounted) return;
+      bytes = await downloadImageBytes(url);
+      if (bytes == null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Не удалось загрузить изображение по ссылке',
+              style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppTheme.inkLift,
+          ),
+        );
+        return;
+      }
+    }
     if (bytes == null || !context.mounted) return;
     await library.setArtistPhoto(widget.artist, bytes);
+  }
+
+  Future<String?> _askImageUrl(BuildContext context) {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.62),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2220),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Ссылка на фото',
+          style: GoogleFonts.syne(
+            color: AppTheme.paper,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          style: GoogleFonts.figtree(color: AppTheme.paper),
+          cursorColor: _kYellow,
+          decoration: InputDecoration(
+            hintText: 'https://…',
+            hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.05),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Отмена',
+              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            style: FilledButton.styleFrom(backgroundColor: _kYellow),
+            child: Text(
+              'Загрузить',
+              style: GoogleFonts.figtree(
+                color: const Color(0xFF1A1408),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _clearPhoto(BuildContext context) async {
@@ -331,7 +395,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
         ? null
         : groupArtistReleases(
             artistTracks: tracks,
-            libraryTracks: _genrePool(library),
+            libraryTracks: library.catalogTracks,
             isThisArtist: (name) =>
                 library.artistCardName(name).toLowerCase() ==
                 widget.artist.toLowerCase(),
@@ -497,7 +561,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.albums,
                         playCountsByKey: widget.trackPlayCounts,
-                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -524,7 +587,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.eps,
                         playCountsByKey: widget.trackPlayCounts,
-                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -551,7 +613,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.singles,
                         playCountsByKey: widget.trackPlayCounts,
-                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -578,7 +639,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.appearances,
                         playCountsByKey: widget.trackPlayCounts,
-                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -635,37 +695,20 @@ class _Header extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= 700;
 
     final photoSize = wide ? 180.0 : 140.0;
-    final photo = Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+    final photo = Stack(
+      clipBehavior: Clip.none,
       children: [
         _ArtistPhoto(path: photoPath, size: photoSize),
-        const SizedBox(width: 12),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PhotoActionButton(
-              icon: const Icon(Icons.image_outlined, size: 18),
-              tooltip: 'Изменить фото',
-              onPressed: onPickPhoto,
-            ),
-            if (onMerge != null) ...[
-              const SizedBox(height: 8),
-              _PhotoActionButton(
-                icon: const Icon(Icons.merge_type_rounded, size: 18),
-                tooltip: mergeTooltip,
-                onPressed: onMerge!,
-              ),
-            ],
-            if (canClearPhoto) ...[
-              const SizedBox(height: 8),
-              _PhotoActionButton(
-                icon: const Icon(Icons.delete_outline, size: 18),
-                tooltip: 'Сбросить фото',
-                onPressed: onClearPhoto,
-              ),
-            ],
-          ],
+        Positioned(
+          top: 4,
+          right: 4,
+          child: _HeaderOverflowMenu(
+            canClearPhoto: canClearPhoto,
+            mergeTooltip: mergeTooltip,
+            onPickPhoto: onPickPhoto,
+            onClearPhoto: onClearPhoto,
+            onMerge: onMerge,
+          ),
         ),
       ],
     );
@@ -754,32 +797,104 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _PhotoActionButton extends StatelessWidget {
-  const _PhotoActionButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
+enum _HeaderMenuAction { pickPhoto, merge, clearPhoto }
+
+class _HeaderOverflowMenu extends StatelessWidget {
+  const _HeaderOverflowMenu({
+    required this.canClearPhoto,
+    required this.mergeTooltip,
+    required this.onPickPhoto,
+    required this.onClearPhoto,
+    this.onMerge,
   });
 
-  final Widget icon;
-  final String tooltip;
-  final VoidCallback onPressed;
+  final bool canClearPhoto;
+  final String mergeTooltip;
+  final VoidCallback onPickPhoto;
+  final VoidCallback onClearPhoto;
+  final VoidCallback? onMerge;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onPressed,
-      tooltip: tooltip,
-      mouseCursor: SystemMouseCursors.click,
-      style: IconButton.styleFrom(
-        backgroundColor: AppTheme.inkLift.withValues(alpha: 0.92),
-        foregroundColor: AppTheme.paper,
-        minimumSize: const Size(40, 40),
-        fixedSize: const Size(40, 40),
-        shape: const CircleBorder(),
+    return Material(
+      color: AppTheme.inkLift.withValues(alpha: 0.92),
+      shape: CircleBorder(
         side: BorderSide(color: AppTheme.paper.withValues(alpha: 0.12)),
       ),
-      icon: icon,
+      clipBehavior: Clip.antiAlias,
+      child: PopupMenuButton<_HeaderMenuAction>(
+        tooltip: 'Ещё',
+        color: AppTheme.inkLift,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        offset: const Offset(0, 44),
+        padding: EdgeInsets.zero,
+        onSelected: (action) {
+          switch (action) {
+            case _HeaderMenuAction.pickPhoto:
+              onPickPhoto();
+            case _HeaderMenuAction.merge:
+              onMerge?.call();
+            case _HeaderMenuAction.clearPhoto:
+              onClearPhoto();
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: _HeaderMenuAction.pickPhoto,
+            child: _HeaderMenuRow(
+              icon: Icons.image_outlined,
+              label: 'Загрузить фото',
+            ),
+          ),
+          if (onMerge != null)
+            PopupMenuItem(
+              value: _HeaderMenuAction.merge,
+              child: _HeaderMenuRow(
+                icon: Icons.merge_type_rounded,
+                label: mergeTooltip.startsWith('Объединить')
+                    ? 'Объединить'
+                    : mergeTooltip,
+              ),
+            ),
+          if (canClearPhoto)
+            const PopupMenuItem(
+              value: _HeaderMenuAction.clearPhoto,
+              child: _HeaderMenuRow(
+                icon: Icons.delete_outline,
+                label: 'Удалить фото',
+              ),
+            ),
+        ],
+        child: const SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(Icons.more_horiz_rounded, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderMenuRow extends StatelessWidget {
+  const _HeaderMenuRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: AppTheme.paper),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: GoogleFonts.figtree(
+            color: AppTheme.paper,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1567,13 +1682,11 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
     required this.artist,
     required this.section,
     required this.playCountsByKey,
-    this.battleOnly = false,
   });
 
   final String artist;
   final _ReleaseSection section;
   final Map<String, int> playCountsByKey;
-  final bool battleOnly;
 
   String get _sectionTitle {
     switch (section) {
@@ -1590,8 +1703,7 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
 
   List<ArtistRelease> _releases(LibraryService library) {
     final want = artist.toLowerCase();
-    final pool =
-        battleOnly ? library.battleTracks : library.catalogTracks;
+    final pool = library.catalogTracks;
     final tracks = pool
         .where(
           (track) => track.artists.any(

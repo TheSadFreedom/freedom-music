@@ -9,9 +9,9 @@ import '../widgets/ambient_backdrop.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/player_expansion.dart';
 import 'browser_screen.dart';
+import 'chart_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
-import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -35,6 +35,8 @@ class _AppShellState extends State<AppShell> {
     (_) => GlobalKey<NavigatorState>(),
   );
 
+  final GlobalKey<HomeScreenState> _homeKey = GlobalKey<HomeScreenState>();
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +56,11 @@ class _AppShellState extends State<AppShell> {
       label: 'Главная',
     ),
     _NavItem(
+      icon: Icons.ssid_chart_rounded,
+      selectedIcon: Icons.ssid_chart_rounded,
+      label: 'Чарты',
+    ),
+    _NavItem(
       icon: Icons.library_music_outlined,
       selectedIcon: Icons.library_music,
       label: 'Библиотека',
@@ -63,19 +70,14 @@ class _AppShellState extends State<AppShell> {
       selectedIcon: Icons.travel_explore,
       label: 'Браузер',
     ),
-    _NavItem(
-      icon: Icons.settings_outlined,
-      selectedIcon: Icons.settings,
-      label: 'Настройки',
-    ),
   ];
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
-      0 => const HomeScreen(),
-      1 => const LibraryScreen(),
-      2 => const BrowserScreen(),
-      _ => const SettingsScreen(),
+      0 => HomeScreen(key: _homeKey),
+      1 => const ChartScreen(),
+      2 => const LibraryScreen(),
+      _ => const BrowserScreen(),
     };
 
     return Stack(
@@ -84,14 +86,14 @@ class _AppShellState extends State<AppShell> {
         if (index != 0)
           AmbientBackdrop(
             accent: switch (index) {
-              1 => const Color(0xFF3D6B8B),
-              2 => const Color(0xFF3D5A8B),
-              _ => AppTheme.moss,
+              1 => const Color(0xFF8B6B3D),
+              2 => const Color(0xFF3D6B8B),
+              _ => const Color(0xFF3D5A8B),
             },
             secondary: switch (index) {
-              1 => const Color(0xFF2A4A5C),
-              2 => const Color(0xFF2A3A5C),
-              _ => const Color(0xFF2A4A5C),
+              1 => const Color(0xFF5A3A2A),
+              2 => const Color(0xFF2A4A5C),
+              _ => const Color(0xFF2A3A5C),
             },
           ),
         page,
@@ -103,6 +105,7 @@ class _AppShellState extends State<AppShell> {
     final firstVisit = _openedTabs.add(i);
     if (i == _index) {
       _navKeys[i].currentState?.popUntil((r) => r.isFirst);
+      if (i == 0) _homeKey.currentState?.clearSearch();
       if (firstVisit) setState(() {});
       return;
     }
@@ -114,8 +117,15 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _handleSystemBack() {
-    // Полный плеер перехватывает «назад» сам; не трогаем вкладки под ним.
-    if (context.read<PlayerExpansion>().isOpen) return;
+    // Диалоги / sheet на корневом навигаторе.
+    final rootNav = Navigator.of(context, rootNavigator: true);
+    if (rootNav.canPop()) {
+      rootNav.pop();
+      return;
+    }
+
+    // Панель внутри плеера → сам плеер → дальше вкладки.
+    if (context.read<PlayerExpansion>().handleBack()) return;
 
     final nav = _navKeys[_index].currentState;
     if (nav != null && nav.canPop()) {
@@ -213,7 +223,6 @@ class _AppShellState extends State<AppShell> {
             onSelect: _select,
             items: _navItems,
           ),
-        if (wide) const VerticalDivider(width: 1),
         Expanded(child: tabs),
       ],
     );
@@ -258,40 +267,11 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
               if (!wide)
-                ColoredBox(
-                  color: AppTheme.ink,
-                  child: SafeArea(
-                    top: false,
-                    child: NavigationBar(
-                      selectedIndex: _index,
-                      onDestinationSelected: _select,
-                      height: _navHeight,
-                      labelBehavior:
-                          NavigationDestinationLabelBehavior.alwaysHide,
-                      destinations: const [
-                        NavigationDestination(
-                          icon: Icon(Icons.home_outlined),
-                          selectedIcon: Icon(Icons.home),
-                          label: 'Главная',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.library_music_outlined),
-                          selectedIcon: Icon(Icons.library_music),
-                          label: 'Библиотека',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.travel_explore_outlined),
-                          selectedIcon: Icon(Icons.travel_explore),
-                          label: 'Браузер',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.settings_outlined),
-                          selectedIcon: Icon(Icons.settings),
-                          label: 'Настройки',
-                        ),
-                      ],
-                    ),
-                  ),
+                _BottomNav(
+                  selectedIndex: _index,
+                  onSelect: _select,
+                  items: _navItems,
+                  height: _navHeight,
                 ),
             ],
           ),
@@ -313,6 +293,115 @@ class _NavItem {
   final String label;
 }
 
+class _BottomNav extends StatelessWidget {
+  const _BottomNav({
+    required this.selectedIndex,
+    required this.onSelect,
+    required this.items,
+    required this.height,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelect;
+  final List<_NavItem> items;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink,
+        border: Border(
+          top: BorderSide(
+            color: AppTheme.paper.withValues(alpha: 0.07),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 18,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: height,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++)
+                  Expanded(
+                    child: _BottomNavItem(
+                      item: items[i],
+                      selected: selectedIndex == i,
+                      onTap: () => onSelect(i),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  const _BottomNavItem({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _NavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppTheme.lime : AppTheme.paperMuted;
+
+    return Semantics(
+      button: true,
+      label: item.label,
+      selected: selected,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          splashColor: AppTheme.moss.withValues(alpha: 0.2),
+          highlightColor: AppTheme.moss.withValues(alpha: 0.1),
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              padding: EdgeInsets.symmetric(
+                horizontal: selected ? 16 : 12,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppTheme.moss.withValues(alpha: 0.32)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Icon(
+                selected ? item.selectedIcon : item.icon,
+                color: color,
+                size: 24,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SideRail extends StatelessWidget {
   const _SideRail({
     required this.selectedIndex,
@@ -324,18 +413,25 @@ class _SideRail extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final List<_NavItem> items;
 
-  static const double _width = 72;
+  static const double _width = 84;
   static const double _btnSize = 48;
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppTheme.ink,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink,
+        border: Border(
+          right: BorderSide(
+            color: AppTheme.paper.withValues(alpha: 0.07),
+          ),
+        ),
+      ),
       child: SizedBox(
         width: _width,
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
             child: Column(
               children: [
                 for (var i = 0; i < 2 && i < items.length; i++)
@@ -378,32 +474,40 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = selected ? AppTheme.lime : AppTheme.paperMuted;
-    final fill = selected
-        ? AppTheme.moss.withValues(alpha: 0.35)
-        : Colors.transparent;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Tooltip(
         message: item.label,
         waitDuration: const Duration(milliseconds: 400),
         child: Material(
-          color: fill,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
+          color: Colors.transparent,
           child: InkWell(
-            customBorder: const CircleBorder(),
-            mouseCursor: SystemMouseCursors.click,
             onTap: onTap,
-            hoverColor: AppTheme.moss.withValues(alpha: 0.22),
-            splashColor: AppTheme.moss.withValues(alpha: 0.28),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Icon(
-                selected ? item.selectedIcon : item.icon,
-                color: color,
-                size: 24,
+            borderRadius: BorderRadius.circular(16),
+            mouseCursor: SystemMouseCursors.click,
+            hoverColor: AppTheme.moss.withValues(alpha: 0.18),
+            splashColor: AppTheme.moss.withValues(alpha: 0.24),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              width: size + 8,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppTheme.moss.withValues(alpha: 0.32)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: SizedBox(
+                height: size,
+                child: Center(
+                  child: Icon(
+                    selected ? item.selectedIcon : item.icon,
+                    color: color,
+                    size: 24,
+                  ),
+                ),
               ),
             ),
           ),

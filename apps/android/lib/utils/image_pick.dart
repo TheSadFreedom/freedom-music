@@ -15,6 +15,83 @@ Future<Uint8List?> pickImageBytes() async {
   return picked?.bytes;
 }
 
+/// Download an image by HTTP(S) URL. Accepts bare hosts (`//` or without scheme).
+Future<Uint8List?> downloadImageBytes(String rawUrl) async {
+  var url = rawUrl.trim();
+  if (url.isEmpty) return null;
+  if (url.startsWith('//')) url = 'https:$url';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://$url';
+  }
+  try {
+    final uri = Uri.parse(url);
+    if (uri.host.isEmpty) return null;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await client.getUrl(uri);
+      req.headers.set(
+        HttpHeaders.userAgentHeader,
+        'FreedomMusic/1.0 (artist photo)',
+      );
+      final res = await req.close().timeout(const Duration(seconds: 25));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        await res.drain<void>();
+        return null;
+      }
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in res) {
+        builder.add(chunk);
+        if (builder.length > 8 << 20) {
+          await res.drain<void>();
+          return null;
+        }
+      }
+      final bytes = builder.takeBytes();
+      if (bytes.isEmpty || !_hasImageSignature(bytes)) return null;
+      return bytes;
+    } finally {
+      client.close(force: true);
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _hasImageSignature(Uint8List bytes) {
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return true;
+  }
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return true;
+  }
+  if (bytes.length >= 6 &&
+      bytes[0] == 0x47 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46) {
+    return true;
+  }
+  if (bytes.length >= 12 &&
+      bytes[0] == 0x52 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x46 &&
+      bytes[8] == 0x57 &&
+      bytes[9] == 0x45 &&
+      bytes[10] == 0x42 &&
+      bytes[11] == 0x50) {
+    return true;
+  }
+  return false;
+}
+
 Future<PickedImage?> pickImage() async {
   final result = await FilePicker.platform.pickFiles(
     type: FileType.image,

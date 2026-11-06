@@ -43,8 +43,26 @@ class _FullPlayerState extends State<FullPlayer> {
   bool _showQueue = false;
   bool _showMetadata = false;
   double _dragOffset = 0;
+  PlayerExpansion? _expansion;
 
-  void _close() => context.read<PlayerExpansion>().close();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final expansion = context.read<PlayerExpansion>();
+    if (!identical(_expansion, expansion)) {
+      _expansion?.setBackHandler(null);
+      _expansion = expansion;
+      _expansion!.setBackHandler(_back);
+    }
+  }
+
+  @override
+  void dispose() {
+    _expansion?.setBackHandler(null);
+    super.dispose();
+  }
+
+  void _close() => (_expansion ?? context.read<PlayerExpansion>()).close();
 
   bool get _showingPanel =>
       _showQueue || _showLyrics || _showEqualizer || _showMetadata;

@@ -42,6 +42,20 @@ Future<bool> confirmDeleteForever(BuildContext context, Track track) {
   );
 }
 
+Future<bool> confirmEmptyTrash(BuildContext context, {required int count}) {
+  return _confirmSimple(
+    context,
+    title: 'Удалить всё навсегда?',
+    body:
+        'Все треки из корзины ($count) будут удалены с диска. '
+        'Восстановить их уже не получится.',
+    confirmLabel: 'Удалить все',
+    icon: Icons.delete_forever_rounded,
+    accent: const Color(0xFFFF8A80),
+    confirmColor: const Color(0xFF2A1214),
+  );
+}
+
 Future<bool> _confirmTrack(
   BuildContext context, {
   required Track track,
@@ -57,6 +71,30 @@ Future<bool> _confirmTrack(
     barrierColor: Colors.black.withValues(alpha: 0.62),
     builder: (ctx) => _TrackConfirmDialog(
       track: track,
+      title: title,
+      body: body,
+      confirmLabel: confirmLabel,
+      icon: icon,
+      accent: accent,
+      confirmColor: confirmColor,
+    ),
+  );
+  return result == true;
+}
+
+Future<bool> _confirmSimple(
+  BuildContext context, {
+  required String title,
+  required String body,
+  required String confirmLabel,
+  required IconData icon,
+  required Color accent,
+  required Color confirmColor,
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.62),
+    builder: (ctx) => _SimpleConfirmDialog(
       title: title,
       body: body,
       confirmLabel: confirmLabel,
@@ -209,6 +247,116 @@ class _TrackConfirmDialog extends StatelessWidget {
   }
 }
 
+class _SimpleConfirmDialog extends StatelessWidget {
+  const _SimpleConfirmDialog({
+    required this.title,
+    required this.body,
+    required this.confirmLabel,
+    required this.icon,
+    required this.accent,
+    required this.confirmColor,
+  });
+
+  final String title;
+  final String body;
+  final String confirmLabel;
+  final IconData icon;
+  final Color accent;
+  final Color confirmColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.45),
+                blurRadius: 32,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: ColoredBox(
+                          color: accent.withValues(alpha: 0.14),
+                          child: Icon(icon, color: accent, size: 26),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.syne(
+                          color: AppTheme.paper,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  body,
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    height: 1.45,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DialogButton(
+                        label: 'Отмена',
+                        background: Colors.white.withValues(alpha: 0.06),
+                        foreground: AppTheme.paper,
+                        onPressed: () => Navigator.pop(context, false),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DialogButton(
+                        label: confirmLabel,
+                        background: accent,
+                        foreground: confirmColor,
+                        onPressed: () => Navigator.pop(context, true),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DialogButton extends StatelessWidget {
   const _DialogButton({
     required this.label,
@@ -277,4 +425,18 @@ Future<void> deleteTrackForever(BuildContext context, Track track) async {
   final player = context.read<PlayerService>();
   await library.deleteTrackPermanently(track.trackKey);
   await player.removeTrackFromQueue(track.trackKey);
+}
+
+Future<void> emptyTrash(BuildContext context, {required int count}) async {
+  if (count <= 0) return;
+  dismissLyrics(context);
+  context = navigatorContext(context);
+  final ok = await confirmEmptyTrash(context, count: count);
+  if (!ok || !context.mounted) return;
+  final library = context.read<LibraryService>();
+  final player = context.read<PlayerService>();
+  final keys = await library.emptyTrash();
+  for (final key in keys) {
+    await player.removeTrackFromQueue(key);
+  }
 }

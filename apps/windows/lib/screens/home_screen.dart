@@ -32,10 +32,10 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   String _query = '';
@@ -48,6 +48,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  /// Clears the home search field and results (e.g. re-tap Home tab).
+  void clearSearch() {
+    _searchTimer?.cancel();
+    _searchController.clear();
+    _searchFocus.unfocus();
+    if (!mounted) return;
+    setState(() {
+      _query = '';
+      _appliedQuery = '';
+    });
   }
 
   void _scheduleSearch(String value) {
