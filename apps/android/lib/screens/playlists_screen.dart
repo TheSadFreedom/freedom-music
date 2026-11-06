@@ -948,6 +948,27 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   style: GoogleFonts.syne(fontWeight: FontWeight.w700),
                 ),
                 actions: [
+                  if (isTrash)
+                    TextButton(
+                      onPressed: tracks.isEmpty
+                          ? null
+                          : () async {
+                              await emptyTrash(
+                                context,
+                                count: tracks.length,
+                              );
+                              if (mounted) _reload();
+                            },
+                      child: Text(
+                        'Удалить все',
+                        style: GoogleFonts.figtree(
+                          color: tracks.isEmpty
+                              ? AppTheme.paperMuted.withValues(alpha: 0.35)
+                              : const Color(0xFFFF8A80),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   if (!isSystem)
                     TextButton(
                       onPressed: () => _addTrack(context),
@@ -1451,10 +1472,11 @@ class _PlaylistHeader extends StatelessWidget {
                     ],
                   )
                 : Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       cover,
                       const SizedBox(height: 20),
-                      info,
+                      SizedBox(width: double.infinity, child: info),
                     ],
                   ),
           ),

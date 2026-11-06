@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../services/settings_service.dart';
+import '../sync/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/kept_icons.dart';
@@ -26,6 +27,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busyBackup = false;
   String? _backupMessage;
+  String? _driveMessage;
   String? _photosMessage;
 
   Future<void> _refreshArtistPhotos(LibraryService library) async {
@@ -42,6 +44,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() => _photosMessage = 'Ошибка: $e');
     }
+  }
+
+  Future<void> _syncDrive(LibraryService library, SyncService sync) async {
+    setState(() => _driveMessage = null);
+    try {
+      await sync.syncNow();
+      if (sync.libraryNeedsReload) {
+        sync.clearLibraryNeedsReload();
+        await library.reload();
+      }
+      library.bumpPlayStats();
+      if (!mounted) return;
+      setState(() => _driveMessage = sync.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _driveMessage = sync.message ?? 'Ошибка синхронизации');
+    }
+  }
+
+  Future<void> _signInDrive(SyncService sync) async {
+    setState(() => _driveMessage = null);
+    try {
+      await sync.signIn();
+      if (!mounted) return;
+      setState(() => _driveMessage = sync.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _driveMessage = sync.message ?? 'Ошибка входа');
+    }
+  }
+
+  Future<void> _signOutDrive(SyncService sync) async {
+    try {
+      await sync.signOut();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _driveMessage = sync.message ?? 'Вы вышли из Google');
   }
 
   Future<void> _clearPlayCounts(LibraryService library) async {
@@ -212,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // playback-session persist from the player.
     final library = context.read<LibraryService>();
     final settings = context.read<SettingsService>();
+    final sync = context.watch<SyncService>();
     final scanOnStartup = context.select<SettingsService, bool>(
       (s) => s.scanOnStartup,
     );
@@ -223,13 +263,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     return ListenableBuilder(
-      listenable: Listenable.merge([library, library.jobUi]),
+      listenable: Listenable.merge([library, library.jobUi, sync]),
       builder: (context, _) {
         final progress = library.scanProgress;
         final scanning = library.scanning;
         final photosBusy = library.artistPhotosRefreshing;
         final photoProgress = library.artistPhotoProgress;
-        final busy = scanning || _busyBackup || photosBusy;
+        final busy = scanning || _busyBackup || photosBusy || sync.busy;
         return Stack(
           children: [
             const Positioned.fill(
@@ -474,6 +514,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ],
+                          const SizedBox(height: 12),
+                          _SectionCard(
+                            title: 'Google Drive',
+                            subtitle:
+                                'Плейлисты, прослушивания, объединения и флаги настроек. Без MP3 и фото.',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _Group(
+                                  children: [
+                                    _PathRow(
+                                      label: 'Аккаунт',
+                                      value: sync.isSignedIn
+                                          ? (sync.email ?? 'вход выполнен')
+                                          : 'не выполнен вход',
+                                    ),
+                                    if (!sync.isSignedIn)
+                                      _SettingAction(
+                                        icon: const UploadGlyph(),
+                                        title: 'Войти через Google',
+                                        description:
+                                            'Доступ только к скрытой папке приложения в Drive. Нужен secrets/google_oauth.desktop.json.',
+                                        onPressed: busy
+                                            ? null
+                                            : () => _signInDrive(sync),
+                                      )
+                                    else ...[
+                                      _SettingAction(
+                                        icon: const RestartGlyph(),
+                                        title: 'Синхронизировать',
+                                        description: sync.lastSyncAt == null
+                                            ? 'Загрузить и скачать изменения.'
+                                            : 'Последний синк: ${DateFormat('dd.MM.yyyy HH:mm').format(sync.lastSyncAt!.toLocal())}',
+                                        onPressed: busy
+                                            ? null
+                                            : () => _syncDrive(library, sync),
+                                      ),
+                                      _SettingAction(
+                                        icon: const DownloadGlyph(),
+                                        title: 'Выйти',
+                                        description:
+                                            'Локальные данные останутся. Outbox не очищается.',
+                                        onPressed: () => _signOutDrive(sync),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                if (sync.busy) ...[
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: _kYellow,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        sync.message ?? 'Синхронизация…',
+                                        style: GoogleFonts.figtree(
+                                          color: AppTheme.paperMuted,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ] else if (_driveMessage != null) ...[
+                                  const SizedBox(height: 10),
+                                  _StatusNote(text: _driveMessage!),
+                                ],
+                              ],
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           _SectionCard(
                             title: 'Данные',

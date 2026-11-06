@@ -1,6 +1,7 @@
 class Playlist {
   const Playlist({
     required this.id,
+    required this.uuid,
     required this.name,
     required this.createdAt,
     this.updatedAt,
@@ -8,6 +9,7 @@ class Playlist {
     this.coverPath,
     this.trackCount = 0,
     this.systemKind,
+    this.deletedAt,
   });
 
   static const kindTrash = 'trash';
@@ -36,6 +38,8 @@ class Playlist {
   static const newTrackDays = 7;
 
   final int id;
+  /// Stable id for Drive sync (not the local INTEGER primary key).
+  final String uuid;
   final String name;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -44,6 +48,7 @@ class Playlist {
   final int trackCount;
   /// Non-null for built-in playlists (e.g. [kindTrash], [kindNew]).
   final String? systemKind;
+  final DateTime? deletedAt;
 
   bool get isTrash => systemKind == kindTrash;
   bool get isNew => systemKind == kindNew;
@@ -63,17 +68,21 @@ class Playlist {
   DateTime get lastTouched => updatedAt ?? createdAt;
 
   Playlist copyWith({
+    String? uuid,
     String? name,
     DateTime? updatedAt,
     String? description,
     String? coverPath,
     int? trackCount,
     String? systemKind,
+    DateTime? deletedAt,
     bool clearDescription = false,
     bool clearCover = false,
+    bool clearDeleted = false,
   }) {
     return Playlist(
       id: id,
+      uuid: uuid ?? this.uuid,
       name: name ?? this.name,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -81,6 +90,7 @@ class Playlist {
       coverPath: clearCover ? null : (coverPath ?? this.coverPath),
       trackCount: trackCount ?? this.trackCount,
       systemKind: systemKind ?? this.systemKind,
+      deletedAt: clearDeleted ? null : (deletedAt ?? this.deletedAt),
     );
   }
 }

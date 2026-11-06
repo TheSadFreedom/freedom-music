@@ -15,6 +15,7 @@ import 'services/library_service.dart';
 import 'services/player_service.dart';
 import 'services/settings_service.dart';
 import 'services/storage_access.dart';
+import 'sync/sync_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_player_layer.dart';
 import 'widgets/startup_splash.dart';
@@ -54,11 +55,13 @@ class _Ready {
     required this.settings,
     required this.library,
     required this.player,
+    required this.sync,
   });
 
   final SettingsService settings;
   final LibraryService library;
   final PlayerService player;
+  final SyncService sync;
 }
 
 class _BootAppState extends State<_BootApp> {
@@ -77,17 +80,36 @@ class _BootAppState extends State<_BootApp> {
       final settings = await SettingsService.create();
       final paths = await AppPaths.resolve();
       final db = await AppDatabase.open(paths);
-      final library = LibraryService(paths: paths, db: db, settings: settings);
+      final sync = SyncService(db: db, settings: settings);
+      final library = LibraryService(
+        paths: paths,
+        db: db,
+        settings: settings,
+        sync: sync,
+      );
+      library.attachSync(sync);
       final player = PlayerService(library, settings);
       library.unlockAudioForWrite = player.whileAudioUnlocked;
       await library.init();
       await player.restoreSession();
+      await sync.loadLastSyncFromDb();
+      await sync.tryRestoreSession();
+      if (sync.isSignedIn) {
+        unawaited(sync.syncNow().then((_) async {
+          if (sync.libraryNeedsReload) {
+            sync.clearLibraryNeedsReload();
+            await library.reload();
+            library.bumpPlayStats();
+          }
+        }));
+      }
       if (!mounted) return;
       setState(() {
         _ready = _Ready(
           settings: settings,
           library: library,
           player: player,
+          sync: sync,
         );
       });
       // Сначала UI и диалог разрешений, потом media-notification.
@@ -127,6 +149,7 @@ class _BootAppState extends State<_BootApp> {
         ChangeNotifierProvider.value(value: ready.settings),
         ChangeNotifierProvider.value(value: ready.library),
         ChangeNotifierProvider.value(value: ready.player),
+        ChangeNotifierProvider.value(value: ready.sync),
       ],
       child: const FreedomMusicApp(),
     );

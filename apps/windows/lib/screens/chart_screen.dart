@@ -76,11 +76,16 @@ class ChartScreen extends StatefulWidget {
 class _ChartScreenState extends State<ChartScreen> {
   Future<_ChartData>? _future;
   bool _refreshing = false;
+  int? _playStatsEpoch;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future ??= _load();
+    final epoch = context.watch<LibraryService>().playStatsEpoch;
+    if (_future == null || _playStatsEpoch != epoch) {
+      _playStatsEpoch = epoch;
+      _future = _load();
+    }
   }
 
   Future<_ChartData> _load() async {
@@ -267,7 +272,9 @@ class _ChartScreenState extends State<ChartScreen> {
                   ),
                 )
               : FutureBuilder<_ChartData>(
-                  key: ValueKey('chart-${library.catalogTracks.length}'),
+                  key: ValueKey(
+                    'chart-${library.catalogTracks.length}-${library.playStatsEpoch}',
+                  ),
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
@@ -577,9 +584,9 @@ class _ChartTrackRow extends StatelessWidget {
     fontSize: 13,
   );
   static final _playsStyle = GoogleFonts.figtree(
-    color: AppTheme.paperMuted.withValues(alpha: 0.55),
-    fontSize: 11,
-    fontWeight: FontWeight.w500,
+    color: const Color(0xFFE8C547),
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
   );
   static final _durationStyle = GoogleFonts.figtree(
     color: AppTheme.paperMuted,

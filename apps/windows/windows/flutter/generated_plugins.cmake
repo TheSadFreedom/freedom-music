@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   media_kit_libs_windows_audio
   pasteboard
   screen_retriever_windows
+  url_launcher_windows
   window_manager
 )
 

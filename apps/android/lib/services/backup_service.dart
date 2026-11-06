@@ -73,6 +73,7 @@ class BackupService {
       }
       final keys = await _db.getPlaylistTrackKeys(pl.id);
       playlistPayload.add({
+        'uuid': pl.uuid,
         'name': pl.name,
         'createdAt': pl.createdAt.millisecondsSinceEpoch,
         'updatedAt': pl.updatedAt?.millisecondsSinceEpoch,
@@ -218,8 +219,10 @@ class BackupService {
           }
         }
         final systemKind = item['systemKind']?.toString();
+        final uuidRaw = item['uuid']?.toString().trim();
         playlistRows.add(
           PlaylistImportRow(
+            uuid: (uuidRaw == null || uuidRaw.isEmpty) ? null : uuidRaw,
             name: name,
             createdAtMs: createdAt,
             updatedAtMs: updatedAt,

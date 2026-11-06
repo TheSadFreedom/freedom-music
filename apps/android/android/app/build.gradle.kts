@@ -61,3 +61,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // google_sign_in / Play Services themes reference AppCompat layouts.
+    implementation("androidx.appcompat:appcompat:1.7.1")
+}

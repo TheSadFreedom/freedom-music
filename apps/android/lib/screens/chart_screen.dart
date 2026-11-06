@@ -88,11 +88,16 @@ class ChartScreen extends StatefulWidget {
 class _ChartScreenState extends State<ChartScreen> {
   Future<_ChartData>? _future;
   bool _refreshing = false;
+  int? _playStatsEpoch;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future ??= _load();
+    final epoch = context.watch<LibraryService>().playStatsEpoch;
+    if (_future == null || _playStatsEpoch != epoch) {
+      _playStatsEpoch = epoch;
+      _future = _load();
+    }
   }
 
   Future<_ChartData> _load() async {
@@ -252,7 +257,9 @@ class _ChartScreenState extends State<ChartScreen> {
           child: library.isEmpty
               ? const _ChartEmptyState()
               : FutureBuilder<_ChartData>(
-                  key: ValueKey('chart-${library.catalogTracks.length}'),
+                  key: ValueKey(
+                    'chart-${library.catalogTracks.length}-${library.playStatsEpoch}',
+                  ),
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {

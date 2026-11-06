@@ -25,6 +25,7 @@ import 'meta_lookup_service.dart';
 import 'metadata_writer.dart';
 import 'scanner_service.dart';
 import 'settings_service.dart';
+import '../sync/sync_service.dart';
 
 class JobLogField {
   const JobLogField(this.label, this.value);
@@ -63,9 +64,11 @@ class LibraryService extends ChangeNotifier {
     required AppPaths paths,
     required AppDatabase db,
     required SettingsService settings,
+    SyncService? sync,
   })  : _paths = paths,
         _db = db,
         _settings = settings,
+        _sync = sync,
         _scanner = ScannerService(paths: paths, db: db),
         _metaLookup = MetaLookupService(),
         _artistPhotos = ArtistPhotoService(),
@@ -75,6 +78,19 @@ class LibraryService extends ChangeNotifier {
   final AppPaths _paths;
   final AppDatabase _db;
   final SettingsService _settings;
+  SyncService? _sync;
+
+  /// Wired after both services exist (circular create order).
+  void attachSync(SyncService sync) => _sync = sync;
+
+  /// Bumps when play counts change (local play or Drive sync) so chart reloads.
+  int _playStatsEpoch = 0;
+  int get playStatsEpoch => _playStatsEpoch;
+
+  void bumpPlayStats() {
+    _playStatsEpoch++;
+    notifyListeners();
+  }
   final ScannerService _scanner;
   final MetaLookupService _metaLookup;
   final ArtistPhotoService _artistPhotos;
@@ -135,40 +151,29 @@ class LibraryService extends ChangeNotifier {
   List<Track> get tracks => _tracks;
 
   List<Track>? _catalogCache;
-  List<Track>? _battleCache;
   Map<String, List<Track>>? _genreCache;
   Map<String, List<Track>>? _artistCache;
   Map<String, List<Track>>? _producerCache;
-  Map<String, List<Track>>? _battleArtistCache;
   List<ReleaseCalendarSection>? _calendarCache;
 
   void _dropSlices() {
     _catalogCache = null;
-    _battleCache = null;
     _genreCache = null;
     _artistCache = null;
     _producerCache = null;
-    _battleArtistCache = null;
     _calendarCache = null;
   }
 
   void _ensureTrackSlices() {
     if (_catalogCache != null) return;
     final catalog = <Track>[];
-    final battle = <Track>[];
     final genre = <String, List<Track>>{};
     final artist = <String, List<Track>>{};
     final artistLabels = <String, String>{};
     final producer = <String, List<Track>>{};
     final producerLabels = <String, String>{};
-    final battleArtist = <String, List<Track>>{};
-    final battleLabels = <String, String>{};
 
     for (final track in _tracks) {
-      if (track.isBattle) {
-        battle.add(track);
-        _putArtist(track, battleArtist, battleLabels);
-      }
       catalog.add(track);
       final name = track.displayGenre;
       if (name.isNotEmpty) {
@@ -186,11 +191,9 @@ class LibraryService extends ChangeNotifier {
     }
 
     _catalogCache = catalog;
-    _battleCache = battle;
     _genreCache = _sortedTrackMap(genre);
     _artistCache = _sortedTrackMap(artist);
     _producerCache = _sortedTrackMap(producer);
-    _battleArtistCache = _sortedTrackMap(battleArtist);
   }
 
   void _putArtist(
@@ -218,12 +221,6 @@ class LibraryService extends ChangeNotifier {
   List<Track> get catalogTracks {
     _ensureTrackSlices();
     return _catalogCache!;
-  }
-
-  /// Battle-Rap only (legacy battles page).
-  List<Track> get battleTracks {
-    _ensureTrackSlices();
-    return _battleCache!;
   }
 
   /// Named releases for the calendar. Rebuilt only when slices drop.
@@ -416,19 +413,80 @@ class LibraryService extends ChangeNotifier {
     return null;
   }
 
+  Timer? _mutationRefreshTimer;
+
+  /// Fast UI update after a small DB write — no full [reload].
+  void _publishMutation() {
+    _invalidateSearch();
+    notifyListeners();
+    _mutationRefreshTimer?.cancel();
+    _mutationRefreshTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(_deferredMutationRefresh());
+    });
+  }
+
+  Future<void> _deferredMutationRefresh() async {
+    await _syncMetaPlaylists();
+    await _refreshMosaics();
+    notifyListeners();
+  }
+
+  Future<void> _refreshPlaylistsAfterMutation() async {
+    _playlists = await _db.getPlaylists();
+  }
+
+  Track? _rawTrackByKey(String trackKey) {
+    for (final track in _tracks) {
+      if (track.trackKey == trackKey) return track;
+    }
+    return null;
+  }
+
   /// Soft-delete: hide everywhere, keep files, put into Корзина.
   Future<void> moveToTrash(String trackKey) async {
     await _db.moveTrackToTrash(trackKey);
-    await reload();
+    final track = _rawTrackByKey(trackKey);
+    if (track != null) {
+      _replaceTrack(trackKey, track.copyWith(trashedAt: DateTime.now()));
+    }
+    await _refreshPlaylistsAfterMutation();
+    _publishMutation();
   }
 
   Future<void> restoreFromTrash(String trackKey) async {
     await _db.restoreTrackFromTrash(trackKey);
-    await reload();
+    final track = _rawTrackByKey(trackKey);
+    if (track != null) {
+      _replaceTrack(trackKey, track.copyWith(trashedAt: null));
+    }
+    await _refreshPlaylistsAfterMutation();
+    _publishMutation();
   }
 
   /// Permanently delete track files from disk and remove from the library.
   Future<void> deleteTrackPermanently(String trackKey) async {
+    await _purgeTrackPermanently(trackKey);
+    _tracks = [
+      for (final track in _tracks)
+        if (track.trackKey != trackKey) track,
+    ];
+    await _refreshPlaylistsAfterMutation();
+    _publishMutation();
+  }
+
+  /// Permanently delete every track currently in trash. Returns deleted keys.
+  Future<List<String>> emptyTrash() async {
+    final entries = await _db.getTrashedTrackEntries();
+    if (entries.isEmpty) return const [];
+    final keys = [for (final e in entries) e.trackKey];
+    for (final trackKey in keys) {
+      await _purgeTrackPermanently(trackKey);
+    }
+    await reload();
+    return keys;
+  }
+
+  Future<void> _purgeTrackPermanently(String trackKey) async {
     final meta = await _db.deleteTrackPermanently(trackKey);
     for (final path in meta.filePaths) {
       try {
@@ -443,7 +501,6 @@ class LibraryService extends ChangeNotifier {
       } catch (_) {}
     }
     await MetadataWriter.deleteCovers(_paths, trackKey);
-    await reload();
   }
 
   bool _cancelFill = false;
@@ -1376,12 +1433,6 @@ class LibraryService extends ChangeNotifier {
     return _producerCache!;
   }
 
-  /// Battle-Rap tracks grouped by artist card. Same lifetime as [battleTracks].
-  Map<String, List<Track>> battleTracksByArtist() {
-    _ensureTrackSlices();
-    return _battleArtistCache!;
-  }
-
   /// Tracks whose producer tag is empty. They have no producer card.
   List<Track> tracksWithoutProducer() {
     final list = _tracks
@@ -1711,7 +1762,12 @@ class LibraryService extends ChangeNotifier {
     return true;
   }
 
-  Future<void> recordPlay(String trackKey) => _db.recordPlay(trackKey);
+  Future<void> recordPlay(String trackKey) async {
+    final at = DateTime.now();
+    await _db.recordPlay(trackKey, at: at);
+    await _sync?.enqueuePlay(trackKey, at: at);
+    _playStatsEpoch++;
+  }
 
   Future<void> addListenMs(String trackKey, int ms) =>
       _db.addListenMs(trackKey, ms);
@@ -1906,6 +1962,7 @@ class LibraryService extends ChangeNotifier {
 
   Future<int> createPlaylist(String name) async {
     final id = await _db.createPlaylist(name);
+    await _sync?.enqueuePlaylistChange(id);
     await reload();
     return id;
   }
@@ -1921,6 +1978,7 @@ class LibraryService extends ChangeNotifier {
     final pl = playlistById(id);
     if (pl == null || pl.isSystem) return;
     await _db.renamePlaylist(id, name);
+    await _sync?.enqueuePlaylistChange(id);
     await reload();
   }
 
@@ -1928,6 +1986,7 @@ class LibraryService extends ChangeNotifier {
     final pl = playlistById(id);
     if (pl == null || pl.isSystem) return;
     await _db.deletePlaylist(id);
+    await _sync?.enqueuePlaylistChange(id, deleted: true);
     await reload();
   }
 
@@ -1941,6 +2000,8 @@ class LibraryService extends ChangeNotifier {
     if (source == null || target == null) return;
     if (source.isSystem || target.isSystem || source.id == target.id) return;
     await _db.movePlaylistTracks(fromId: fromId, toId: toId);
+    await _sync?.enqueuePlaylistChange(fromId, deleted: true);
+    await _sync?.enqueuePlaylistChange(toId);
     await reload();
   }
 
@@ -1950,6 +2011,7 @@ class LibraryService extends ChangeNotifier {
       description: description ?? '',
       clearDescription: description == null || description.trim().isEmpty,
     );
+    await _sync?.enqueuePlaylistChange(id);
     await reload();
   }
 
@@ -2031,6 +2093,7 @@ class LibraryService extends ChangeNotifier {
     if (a.toLowerCase() == b.toLowerCase()) return;
 
     await _db.upsertArtistAlias(fromDisplay: b, toDisplay: a);
+    await _sync?.enqueueArtistAlias(fromDisplay: b, toDisplay: a);
     await _movePersonPhoto(from: b, into: a);
     await reload();
   }
@@ -2046,6 +2109,7 @@ class LibraryService extends ChangeNotifier {
     if (a.toLowerCase() == b.toLowerCase()) return;
 
     await _db.upsertProducerAlias(fromDisplay: b, toDisplay: a);
+    await _sync?.enqueueProducerAlias(fromDisplay: b, toDisplay: a);
     await _movePersonPhoto(from: b, into: a);
     await reload();
   }
@@ -2235,6 +2299,7 @@ class LibraryService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _mutationRefreshTimer?.cancel();
     jobUi.dispose();
     super.dispose();
   }
@@ -2352,13 +2417,19 @@ class LibraryService extends ChangeNotifier {
     final pl = playlistById(playlistId);
     if (pl == null || pl.isSystem) return false;
     final added = await _db.addTrackToPlaylist(playlistId, trackKey);
-    if (added) await reload();
+    if (added) {
+      await _sync?.enqueuePlaylistChange(playlistId);
+      await _refreshPlaylistsAfterMutation();
+      _publishMutation();
+    }
     return added;
   }
 
   Future<void> removeFromPlaylist(int playlistId, String trackKey) async {
     await _db.removeFromPlaylist(playlistId, trackKey);
-    await reload();
+    await _sync?.enqueuePlaylistChange(playlistId);
+    await _refreshPlaylistsAfterMutation();
+    _publishMutation();
   }
 
   Future<void> clearPlayCounts() async {
