@@ -21,7 +21,7 @@ class ArtistPhotoProgress {
 }
 
 /// Resolves artist portraits without API keys:
-/// Yandex Music → Genius → Deezer.
+/// Yandex Music → Genius → Deezer → Google Images.
 class ArtistPhotoService {
   static const _ua = 'FreedomMusic/1.0 (local music player; artist photos)';
   static const _uaBrowser =
@@ -44,15 +44,19 @@ class ArtistPhotoService {
     final name = artistName.trim();
     if (name.isEmpty || name.toLowerCase() == 'unknown') return null;
 
-    final lookups = <Future<String?> Function(String)>[
-      _yandexMusicImageUrl,
-      _geniusImageUrl,
-      _deezerImageUrl,
+    final lookups = <({
+      Future<String?> Function(String) find,
+      String? referer,
+    })>[
+      (find: _yandexMusicImageUrl, referer: null),
+      (find: _geniusImageUrl, referer: null),
+      (find: _deezerImageUrl, referer: null),
+      (find: _googleImagesUrl, referer: 'https://www.google.com/'),
     ];
     for (final lookup in lookups) {
-      final url = await lookup(name);
+      final url = await lookup.find(name);
       if (url == null || url.isEmpty) continue;
-      final bytes = await _download(url);
+      final bytes = await _download(url, referer: lookup.referer);
       if (bytes != null && bytes.isNotEmpty) return bytes;
     }
     return null;
@@ -177,11 +181,83 @@ class ArtistPhotoService {
     return null;
   }
 
-  Future<Uint8List?> _download(String url) async {
+  /// Unofficial Google Images HTML scrape — first usable result URL.
+  Future<String?> _googleImagesUrl(String artist) async {
+    final html = await _getHtml(
+      Uri.https('www.google.com', '/search', {
+        'q': artist,
+        'tbm': 'isch',
+        'hl': 'ru',
+        'gl': 'ru',
+        'safe': 'active',
+        'ijn': '0',
+      }),
+      delay: const Duration(milliseconds: 350),
+      userAgent: _uaBrowser,
+    );
+    if (html == null || html.isEmpty) return null;
+
+    // Full-size originals embedded as "ou":"https://..."
+    for (final m in RegExp(r'"ou":"(https?:\\/\\/[^"]+)"').allMatches(html)) {
+      final url = _decodeGoogleUrl(m.group(1)!);
+      if (_usableImageUrl(url)) return url;
+    }
+
+    // AF_initDataCallback payloads: ["https://…", width, height]
+    var data = html.replaceAll(
+      RegExp(
+        r'\["https://encrypted-tbn0\.gstatic\.com/images\?[^"]+",\d+,\d+\]',
+      ),
+      '',
+    );
+    for (final m in RegExp(
+      r'(?:,|\[)"(https?://[^"]+)",\d{2,5},\d{2,5}\]',
+    ).allMatches(data)) {
+      final url = _decodeGoogleUrl(m.group(1)!);
+      if (_usableImageUrl(url)) return url;
+    }
+
+    // Last resort: first Google thumbnail.
+    final thumb = RegExp(
+      r'(https://encrypted-tbn0\.gstatic\.com/images\?[^"\\]+)',
+    ).firstMatch(html);
+    if (thumb != null) {
+      final url = _decodeGoogleUrl(thumb.group(1)!);
+      if (url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  String _decodeGoogleUrl(String raw) {
+    var s = raw.replaceAll(r'\/', '/');
+    try {
+      final decoded = jsonDecode('"$s"');
+      if (decoded is String && decoded.isNotEmpty) return decoded;
+    } catch (_) {}
+    return s
+        .replaceAll(r'\u003d', '=')
+        .replaceAll(r'\u0026', '&')
+        .replaceAll(r'\u002F', '/');
+  }
+
+  bool _usableImageUrl(String url) {
+    if (url.isEmpty) return false;
+    final u = url.toLowerCase();
+    if (!(u.startsWith('http://') || u.startsWith('https://'))) return false;
+    if (u.contains('gstatic.com/images/branding')) return false;
+    if (u.contains('google.com/logos')) return false;
+    if (u.contains('favicon')) return false;
+    return true;
+  }
+
+  Future<Uint8List?> _download(String url, {String? referer}) async {
     try {
       final uri = Uri.parse(url);
       final req = await _http.getUrl(uri);
-      req.headers.set(HttpHeaders.userAgentHeader, _ua);
+      req.headers.set(HttpHeaders.userAgentHeader, _uaBrowser);
+      if (referer != null) {
+        req.headers.set(HttpHeaders.refererHeader, referer);
+      }
       final res = await req.close().timeout(const Duration(seconds: 25));
       if (res.statusCode != 200) {
         await res.drain<void>();
@@ -219,6 +295,31 @@ class ArtistPhotoService {
       }
       final body = await res.transform(utf8.decoder).join();
       return jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _getHtml(
+    Uri uri, {
+    Duration delay = const Duration(milliseconds: 250),
+    String? userAgent,
+  }) async {
+    await Future<void>.delayed(delay);
+    try {
+      final req = await _http.getUrl(uri);
+      req.headers.set(HttpHeaders.userAgentHeader, userAgent ?? _uaBrowser);
+      req.headers.set(
+        HttpHeaders.acceptHeader,
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      );
+      req.headers.set('Accept-Language', 'ru-RU,ru;q=0.9,en;q=0.8');
+      final res = await req.close().timeout(const Duration(seconds: 25));
+      if (res.statusCode != 200) {
+        await res.drain<void>();
+        return null;
+      }
+      return await res.transform(utf8.decoder).join();
     } catch (_) {
       return null;
     }
