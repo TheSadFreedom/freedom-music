@@ -4,21 +4,6 @@ import '../data/track_key.dart';
 
 final _searchCache = Expando<String>();
 
-/// True when the genre tag is Battle-Rap, including "Battle Rap".
-bool isBattleGenre(String? genre) {
-  final raw = metaFieldText(genre);
-  if (raw.isEmpty) return false;
-  for (final part in raw.split(RegExp(r'[,/;]'))) {
-    final text = part
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'[-_]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
-    if (text == 'battle rap') return true;
-  }
-  return false;
-}
-
 class Track {
   const Track({
     required this.trackKey,
@@ -104,9 +89,6 @@ class Track {
   }
 
   String get displayGenre => metaFieldText(genre);
-
-  /// Genre tag Battle-Rap.
-  bool get isBattle => isBattleGenre(genre);
 
   /// Grouping key. An empty album stays "Unknown" so releases still cluster.
   String get displayAlbum => isBlankMeta(album) ? 'Unknown' : album.trim();
