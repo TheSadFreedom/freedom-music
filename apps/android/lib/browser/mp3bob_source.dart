@@ -67,6 +67,18 @@ class Mp3bobSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Плейлист «Топ» — https://mp3bob.ru/samye-populyarnye-pesni/
+  Future<List<BrowserHit>> popular({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final html =
+        await _getText(Uri.parse('$_origin/samye-populyarnye-pesni/'));
+    final items = _parseItems(html);
+    if (items.isEmpty) return const [];
+    return [
+      for (final item in items.take(take)) _toHit(item),
+    ];
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -83,18 +95,21 @@ class Mp3bobSource implements BrowserSource {
     if (items.isEmpty) return const [];
     final take = limit.clamp(1, 50);
     return [
-      for (final item in items.take(take))
-        BrowserHit(
-          sourceId: id,
-          id: item.id,
-          title: item.title,
-          artist: item.artist.isEmpty ? 'Unknown' : item.artist,
-          subtitle: null,
-          duration: null,
-          license: null,
-          downloadUrl: item.fileUrl,
-        ),
+      for (final item in items.take(take)) _toHit(item),
     ];
+  }
+
+  BrowserHit _toHit(_TrackItem item) {
+    return BrowserHit(
+      sourceId: id,
+      id: item.id,
+      title: item.title,
+      artist: item.artist.isEmpty ? 'Unknown' : item.artist,
+      subtitle: null,
+      duration: null,
+      license: null,
+      downloadUrl: item.fileUrl,
+    );
   }
 
   @override

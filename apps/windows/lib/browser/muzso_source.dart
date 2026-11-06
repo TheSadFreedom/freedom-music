@@ -45,6 +45,29 @@ class MuzsoSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Плейлист «Новинки» — https://one.muzso.net/newmusic
+  Future<List<BrowserHit>> newest({int limit = 100}) {
+    return _catalogPlaylist('newmusic', limit: limit);
+  }
+
+  /// Плейлист «Хиты» — https://one.muzso.net/hits
+  Future<List<BrowserHit>> popular({int limit = 100}) {
+    return _catalogPlaylist('hits', limit: limit);
+  }
+
+  Future<List<BrowserHit>> _catalogPlaylist(
+    String path, {
+    required int limit,
+  }) async {
+    final take = limit.clamp(1, 200);
+    final html = await _getText(Uri.parse('$_origin/$path'));
+    final items = _parseItems(html);
+    if (items.isEmpty) return const [];
+    return [
+      for (final item in items.take(take)) _toHit(item),
+    ];
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -57,18 +80,21 @@ class MuzsoSource implements BrowserSource {
     if (items.isEmpty) return const [];
     final take = limit.clamp(1, 50);
     return [
-      for (final item in items.take(take))
-        BrowserHit(
-          sourceId: id,
-          id: item.tid,
-          title: item.title,
-          artist: item.artist.isEmpty ? 'Unknown' : item.artist,
-          subtitle: null,
-          duration: item.duration,
-          license: null,
-          downloadUrl: null,
-        ),
+      for (final item in items.take(take)) _toHit(item),
     ];
+  }
+
+  BrowserHit _toHit(_TrackItem item) {
+    return BrowserHit(
+      sourceId: id,
+      id: item.tid,
+      title: item.title,
+      artist: item.artist.isEmpty ? 'Unknown' : item.artist,
+      subtitle: null,
+      duration: item.duration,
+      license: null,
+      downloadUrl: null,
+    );
   }
 
   @override

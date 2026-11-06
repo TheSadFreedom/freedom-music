@@ -27,6 +27,11 @@ class MuzpaceSource implements BrowserSource {
     r'<div[^>]*class="[^"]*\bmuz-single-track\b[^"]*"[^>]*>',
     caseSensitive: false,
   );
+  static final _trackRowRe = RegExp(
+    r'<div[^>]*class="[^"]*\btrack-row\b[^"]*"[^>]*>',
+    caseSensitive: false,
+  );
+  static final _idFromPathRe = RegExp(r'/mp3/(\d+)');
   static final _attrRe = RegExp(
     r'''([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)')''',
     caseSensitive: false,
@@ -50,6 +55,39 @@ class MuzpaceSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Плейлист «Новинки» — https://muzpace.net/mp3/novinki
+  Future<List<BrowserHit>> newest({int limit = 100}) {
+    return _catalogPlaylist('novinki', limit: limit);
+  }
+
+  /// Плейлист «Топ» — https://muzpace.net/mp3/populyarnaya
+  Future<List<BrowserHit>> popular({int limit = 100}) {
+    return _catalogPlaylist('populyarnaya', limit: limit);
+  }
+
+  Future<List<BrowserHit>> _catalogPlaylist(
+    String slug, {
+    required int limit,
+  }) async {
+    final take = limit.clamp(1, 200);
+    final hits = <BrowserHit>[];
+    final seen = <String>{};
+    for (var page = 1; page <= 5 && hits.length < take; page++) {
+      final path = page == 1
+          ? '$_origin/mp3/$slug'
+          : '$_origin/mp3/$slug/page/$page';
+      final html = await _getText(Uri.parse(path));
+      final items = _parseTrackRows(html);
+      if (items.isEmpty) break;
+      for (final item in items) {
+        if (!seen.add(item.id)) continue;
+        hits.add(_toHit(item));
+        if (hits.length >= take) break;
+      }
+    }
+    return hits;
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -67,18 +105,21 @@ class MuzpaceSource implements BrowserSource {
     if (items.isEmpty) return const [];
     final take = limit.clamp(1, 50);
     return [
-      for (final item in items.take(take))
-        BrowserHit(
-          sourceId: id,
-          id: item.id,
-          title: item.title,
-          artist: item.artist.isEmpty ? 'Unknown' : item.artist,
-          subtitle: null,
-          duration: null,
-          license: null,
-          downloadUrl: item.pageUrl,
-        ),
+      for (final item in items.take(take)) _toHit(item),
     ];
+  }
+
+  BrowserHit _toHit(_TrackItem item) {
+    return BrowserHit(
+      sourceId: id,
+      id: item.id,
+      title: item.title,
+      artist: item.artist.isEmpty ? 'Unknown' : item.artist,
+      subtitle: null,
+      duration: null,
+      license: null,
+      downloadUrl: item.fileUrl.isNotEmpty ? item.fileUrl : item.pageUrl,
+    );
   }
 
   @override
@@ -145,6 +186,37 @@ class MuzpaceSource implements BrowserSource {
           artist: parts.$1,
           title: parts.$2,
           pageUrl: _absUrl(path),
+          fileUrl: '',
+        ),
+      );
+    }
+    return out;
+  }
+
+  static List<_TrackItem> _parseTrackRows(String html) {
+    final out = <_TrackItem>[];
+    final seen = <String>{};
+    for (final m in _trackRowRe.allMatches(html)) {
+      final tag = m.group(0)!;
+      final attrs = <String, String>{};
+      for (final a in _attrRe.allMatches(tag)) {
+        final name = a.group(1)!.toLowerCase();
+        final value = (a.group(3) ?? a.group(4) ?? '').trim();
+        attrs[name] = value;
+      }
+      final title = _clean(attrs['data-title'] ?? '');
+      final artist = _clean(attrs['data-artist'] ?? '');
+      final link = attrs['data-link'] ?? '';
+      final idMatch = _idFromPathRe.firstMatch(link);
+      final id = (idMatch?.group(1) ?? '').trim();
+      if (id.isEmpty || title.isEmpty || !seen.add(id)) continue;
+      out.add(
+        _TrackItem(
+          id: id,
+          artist: artist,
+          title: title,
+          pageUrl: _absUrl(link),
+          fileUrl: _absUrl(attrs['data-url'] ?? ''),
         ),
       );
     }
@@ -207,10 +279,12 @@ class _TrackItem {
     required this.title,
     required this.artist,
     required this.pageUrl,
+    this.fileUrl = '',
   });
 
   final String id;
   final String title;
   final String artist;
   final String pageUrl;
+  final String fileUrl;
 }

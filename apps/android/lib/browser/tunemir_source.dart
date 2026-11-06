@@ -44,6 +44,37 @@ class TunemirSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Плейлист «Новинки» — https://tunemir.com/new/
+  Future<List<BrowserHit>> newest({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final hits = <BrowserHit>[];
+    final seen = <String>{};
+    for (var page = 1; page <= 5 && hits.length < take; page++) {
+      final path =
+          page == 1 ? '$_origin/new/' : '$_origin/new/page/$page/';
+      final html = await _getText(Uri.parse(path));
+      final items = _parseTrackItems(html);
+      if (items.isEmpty) break;
+      for (final item in items) {
+        if (!seen.add(item.id)) continue;
+        hits.add(_toHit(item));
+        if (hits.length >= take) break;
+      }
+    }
+    return hits;
+  }
+
+  /// Плейлист «Топ» — https://tunemir.com/top.html
+  Future<List<BrowserHit>> popular({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final html = await _getText(Uri.parse('$_origin/top.html'));
+    final items = _parseTrackItems(html);
+    if (items.isEmpty) return const [];
+    return [
+      for (final item in items.take(take)) _toHit(item),
+    ];
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -53,23 +84,26 @@ class TunemirSource implements BrowserSource {
     if (items.isEmpty) return const [];
     final take = limit.clamp(1, 50);
     return [
-      for (final item in items.take(take))
-        BrowserHit(
-          sourceId: this.id,
-          id: item.id,
-          title: item.title,
-          artist: item.artist.isEmpty ? 'Unknown' : item.artist,
-          subtitle: null,
-          duration: item.duration,
-          license: null,
-          // Страница трека — оттуда освежаем data-dl / data-src.
-          downloadUrl: item.pageUrl.isNotEmpty
-              ? item.pageUrl
-              : (item.downloadUrl.isNotEmpty
-                  ? item.downloadUrl
-                  : item.streamUrl),
-        ),
+      for (final item in items.take(take)) _toHit(item),
     ];
+  }
+
+  BrowserHit _toHit(_TrackItem item) {
+    return BrowserHit(
+      sourceId: id,
+      id: item.id,
+      title: item.title,
+      artist: item.artist.isEmpty ? 'Unknown' : item.artist,
+      subtitle: null,
+      duration: item.duration,
+      license: null,
+      // Страница трека — оттуда освежаем data-dl / data-src.
+      downloadUrl: item.pageUrl.isNotEmpty
+          ? item.pageUrl
+          : (item.downloadUrl.isNotEmpty
+              ? item.downloadUrl
+              : item.streamUrl),
+    );
   }
 
   @override

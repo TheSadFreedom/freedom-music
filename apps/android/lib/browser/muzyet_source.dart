@@ -76,6 +76,27 @@ class MuzyetSource implements BrowserSource, BrowserFeaturedSource {
     return _toHits(merged, take);
   }
 
+  /// Плейлист «Новинки» — https://thirteen.muzyet.com/newmusic
+  Future<List<BrowserHit>> newest({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final html = await _getText(Uri.parse('$_origin/newmusic'));
+    return _toHits(_parseItems(html), take);
+  }
+
+  /// Плейлист «Хиты» — https://thirteen.muzyet.com/hitmusic
+  Future<List<BrowserHit>> popular({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final html = await _getTextSoft(Uri.parse('$_origin/hitmusic'));
+    if (html.isEmpty) {
+      // Fallback: блок на главной.
+      return _toHits(
+        _parseItems(await _getText(Uri.parse('$_origin/'))),
+        take,
+      );
+    }
+    return _toHits(_parseItems(html), take);
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();

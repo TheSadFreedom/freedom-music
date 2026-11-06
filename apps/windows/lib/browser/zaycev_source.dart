@@ -5,7 +5,7 @@ import 'browser_hit.dart';
 import 'browser_source.dart';
 
 /// Zaycev.net — поиск и скачивание через публичный `/api/external`.
-class ZaycevSource implements BrowserSource {
+class ZaycevSource implements BrowserSource, BrowserFeaturedSource {
   ZaycevSource({HttpClient? client}) : _owned = client == null {
     _client = client ??
         (HttpClient()
@@ -35,6 +35,56 @@ class ZaycevSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Плейлист «Новинки» — https://zaycev.net/new/index.html
+  @override
+  Future<List<BrowserHit>> featured({int limit = 100}) {
+    return _paginatedTracks('pages/new', limit: limit);
+  }
+
+  /// Плейлист «Топ» — https://zaycev.net/popular/index.html
+  Future<List<BrowserHit>> popular({int limit = 100}) {
+    return _paginatedTracks(
+      'pages/index/top',
+      limit: limit,
+      extra: const {
+        'period': 'week',
+        'entity': 'track',
+      },
+    );
+  }
+
+  Future<List<BrowserHit>> _paginatedTracks(
+    String path, {
+    required int limit,
+    Map<String, String> extra = const {},
+  }) async {
+    final take = limit.clamp(1, 200);
+    final hits = <BrowserHit>[];
+    var page = 1;
+    while (hits.length < take && page <= 8) {
+      final pageSize = (take - hits.length).clamp(1, 50);
+      final uri = Uri.parse('$_api/$path').replace(
+        queryParameters: {
+          'page': '$page',
+          'limit': '$pageSize',
+          ...extra,
+        },
+      );
+      final body = await _getJson(uri);
+      final batch = await _hitsFromPage(body, pageSize);
+      if (batch.isEmpty) break;
+      hits.addAll(batch);
+      final pagesRaw = body['pagesCount'];
+      final pagesCount = pagesRaw is int
+          ? pagesRaw
+          : int.tryParse('$pagesRaw') ?? page;
+      if (page >= pagesCount) break;
+      page++;
+    }
+    if (hits.length <= take) return hits;
+    return hits.sublist(0, take);
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -48,6 +98,13 @@ class ZaycevSource implements BrowserSource {
       },
     );
     final body = await _getJson(uri);
+    return _hitsFromPage(body, pageSize);
+  }
+
+  Future<List<BrowserHit>> _hitsFromPage(
+    Map<String, dynamic> body,
+    int take,
+  ) async {
     final ids = body['trackIds'];
     final info = _asMap(body['tracksInfo']) ?? const <String, dynamic>{};
     if (ids is! List || ids.isEmpty) return const [];
@@ -56,6 +113,7 @@ class ZaycevSource implements BrowserSource {
     for (final raw in ids) {
       final id = raw is int ? raw : int.tryParse('$raw');
       if (id != null) idList.add(id);
+      if (idList.length >= take) break;
     }
     final meta = await _filezmeta(idList);
 
@@ -83,7 +141,8 @@ class ZaycevSource implements BrowserSource {
           title: title,
           artist: artist.isEmpty ? 'Unknown' : artist,
           subtitle: [
-            if (_bitrateLabel(row['bitrate']) != null) _bitrateLabel(row['bitrate'])!,
+            if (_bitrateLabel(row['bitrate']) != null)
+              _bitrateLabel(row['bitrate'])!,
             if (viaStream) 'stream',
           ].join(' · '),
           duration: _parseDuration('${row['duration'] ?? ''}'),

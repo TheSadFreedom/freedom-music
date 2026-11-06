@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../browser/browser_hit.dart';
+import '../browser/browser_playlist.dart';
 import '../browser/browser_result_ranker.dart';
 import '../browser/browser_source.dart';
 import '../browser/browser_sources.dart';
@@ -14,7 +15,9 @@ import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
+import '../widgets/app_bottom_sheet.dart';
 import '../widgets/library_track_picker.dart';
+import 'browser_playlist_detail_screen.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 
@@ -29,10 +32,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final TextEditingController _query;
   late final List<BrowserSource> _sources;
   late final Map<String, BrowserSource> _byId;
+  late final List<BrowserPlaylist> _playlists;
   late final Set<String> _enabledIds;
   List<BrowserHit> _hits = const [];
   bool _searching = false;
-  bool _sourcesExpanded = false;
+  int _loadGen = 0;
   String? _downloadingKey;
   String? _previewingKey;
   String? _replacingKey;
@@ -48,6 +52,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
     _sources = createBrowserSources();
     _byId = {for (final s in _sources) s.id: s};
+    _playlists = createBrowserPlaylists(_byId);
     _enabledIds = {for (final s in _sources) s.id};
   }
 
@@ -111,9 +116,60 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
   }
 
+  Future<void> _openSourcesPicker() async {
+    if (_searching ||
+        _downloadingKey != null ||
+        _previewingKey != null ||
+        _replacingKey != null) {
+      return;
+    }
+    await showAppBottomSheet<void>(
+      context: context,
+      title: 'Источники',
+      scrollControlled: true,
+      body: (sheetCtx) => _SourcesPickerSheet(
+        sources: _sources,
+        enabledIds: _enabledIds,
+        onToggle: (source, enabled) {
+          _toggleSource(source, enabled);
+        },
+        onToggleAll: _toggleAllSources,
+      ),
+    );
+  }
+
+  void _resetToHome() {
+    _loadGen++;
+    setState(() {
+      _query.clear();
+      _hits = const [];
+      _searching = false;
+      _error = null;
+      _status = null;
+    });
+  }
+
+  Future<void> _openPlaylist(BrowserPlaylist playlist) async {
+    if (_searching ||
+        _downloadingKey != null ||
+        _previewingKey != null ||
+        _replacingKey != null) {
+      return;
+    }
+    final source = _byId[playlist.sourceId];
+    if (source == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BrowserPlaylistDetailScreen(
+          playlist: playlist,
+          source: source,
+        ),
+      ),
+    );
+  }
+
   Future<void> _search() async {
     final q = _query.text.trim();
-    if (_searching) return;
     final active = _activeSources;
     if (active.isEmpty) {
       setState(() {
@@ -124,14 +180,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
       return;
     }
     if (q.isEmpty) {
-      setState(() {
-        _hits = const [];
-        _error = null;
-        _status = null;
-      });
+      _resetToHome();
       return;
     }
 
+    final gen = ++_loadGen;
     setState(() {
       _searching = true;
       _error = null;
@@ -156,7 +209,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }(),
     ]);
 
-    if (!mounted) return;
+    if (!mounted || gen != _loadGen) return;
     final refined = BrowserResultRanker.refine(q, merged);
 
     setState(() {
@@ -166,17 +219,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _status = 'Ничего не найдено';
         _error = errors.isEmpty ? null : errors.join('\n');
       } else {
-        final bySource = <String, int>{};
-        for (final hit in refined) {
-          bySource[hit.sourceId] = (bySource[hit.sourceId] ?? 0) + 1;
-        }
-        final parts = [
-          for (final s in _sources)
-            if (bySource.containsKey(s.id)) '${s.name}: ${bySource[s.id]}',
-        ];
-        final trimmed =
-            refined.length < merged.length ? ' из ${merged.length}' : '';
-        _status = '${refined.length}$trimmed · ${parts.join(' · ')}';
+        _status = null;
         _error = errors.isEmpty ? null : 'Частично: ${errors.join('; ')}';
       }
     });
@@ -366,7 +409,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _previewingKey != null ||
         _replacingKey != null;
     final hPad = phone ? 16.0 : 22.0;
-    final emptyQuery = _query.text.trim().isEmpty && !_searching;
+    final showPlaylistsHome = _playlists.isNotEmpty &&
+        !_searching &&
+        _hits.isEmpty &&
+        _status == null &&
+        _error == null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -379,57 +426,94 @@ class _BrowserScreenState extends State<BrowserScreen> {
               searching: _searching,
               enabledCount: _enabledIds.length,
               totalCount: _sources.length,
-              onSearch:
-                  busy && !_searching ? null : (_searching ? null : _search),
+              onSearch: (_downloadingKey != null ||
+                      _previewingKey != null ||
+                      _replacingKey != null)
+                  ? null
+                  : _search,
               onClear: () {
-                _query.clear();
-                setState(() {
-                  _hits = const [];
-                  _error = null;
-                  _status = null;
-                });
+                if (_downloadingKey != null ||
+                    _previewingKey != null ||
+                    _replacingKey != null) {
+                  return;
+                }
+                _resetToHome();
               },
             ),
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 0),
-              child: _SourcesBar(
+              padding: EdgeInsets.fromLTRB(hPad, 10, hPad, 0),
+              child: _SourcesSummary(
                 sources: _sources,
                 enabledIds: _enabledIds,
-                expanded: _sourcesExpanded,
                 busy: busy,
-                onToggle: _toggleSource,
-                onToggleAll: _toggleAllSources,
-                onExpandToggle: () =>
-                    setState(() => _sourcesExpanded = !_sourcesExpanded),
+                onOpen: _openSourcesPicker,
               ),
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 6),
-              child: _ResultsHeader(
-                status: _status,
-                error: _error,
-                count: _hits.length,
-                searching: _searching,
-              ),
-            ),
-          ),
-          if (_hits.isEmpty)
+          if (showPlaylistsHome) ...[
             SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 100),
-                child: _EmptyState(
-                  searching: _searching,
-                  activeCount: _activeSources.length,
-                  nothingFound: _status == 'Ничего не найдено',
+                padding: EdgeInsets.fromLTRB(hPad, 18, hPad, 12),
+                child: Text(
+                  'Плейлисты',
+                  style: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
                 ),
               ),
-            )
-          else
-            ...[
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 100),
+              sliver: SliverGrid(
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: phone ? 160 : 180,
+                  mainAxisSpacing: 18,
+                  crossAxisSpacing: 14,
+                  // Квадратная обложка + подписи под ней.
+                  childAspectRatio: 0.78,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final pl = _playlists[index];
+                    return _BrowserPlaylistTile(
+                      playlist: pl,
+                      busy: busy,
+                      onOpen: () => _openPlaylist(pl),
+                    );
+                  },
+                  childCount: _playlists.length,
+                ),
+              ),
+            ),
+          ] else ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 6),
+                child: _ResultsHeader(
+                  title: 'Результаты',
+                  status: _status,
+                  error: _error,
+                  count: _hits.length,
+                  searching: _searching,
+                ),
+              ),
+            ),
+            if (_hits.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 100),
+                  child: _EmptyState(
+                    searching: _searching,
+                    activeCount: _activeSources.length,
+                    nothingFound: _status == 'Ничего не найдено',
+                  ),
+                ),
+              )
+            else ...[
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 0),
                 sliver: SliverList(
@@ -465,8 +549,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
-          if (emptyQuery || _hits.isEmpty)
-            const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          ],
         ],
       ),
     );
@@ -717,184 +800,428 @@ class _BrowserHero extends StatelessWidget {
   }
 }
 
-class _SourcesBar extends StatelessWidget {
-  const _SourcesBar({
+class _SourcesSummary extends StatelessWidget {
+  const _SourcesSummary({
     required this.sources,
     required this.enabledIds,
-    required this.expanded,
     required this.busy,
-    required this.onToggle,
-    required this.onToggleAll,
-    required this.onExpandToggle,
+    required this.onOpen,
   });
 
   final List<BrowserSource> sources;
   final Set<String> enabledIds;
-  final bool expanded;
   final bool busy;
-  final void Function(BrowserSource source, bool enabled) onToggle;
-  final VoidCallback onToggleAll;
-  final VoidCallback onExpandToggle;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final allOn = sources.isNotEmpty && enabledIds.length >= sources.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Источники',
-              style: GoogleFonts.syne(
-                color: AppTheme.paper,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${enabledIds.length} вкл.',
-              style: GoogleFonts.figtree(
-                color: AppTheme.paperMuted,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: busy ? null : onToggleAll,
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.paperMuted,
-                disabledForegroundColor:
-                    AppTheme.paperMuted.withValues(alpha: 0.35),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                allOn ? 'Выкл все' : 'Вкл все',
-                style: GoogleFonts.figtree(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: onExpandToggle,
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.mossBright,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                expanded ? 'Лента' : 'Сеткой',
-                style: GoogleFonts.figtree(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (expanded)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final source in sources)
-                _SourceChip(
-                  name: source.name,
-                  selected: enabledIds.contains(source.id),
-                  accent: _accentFor(source.id),
-                  enabled: !busy,
-                  onSelected: (v) => onToggle(source, v),
-                ),
-            ],
-          )
-        else
-          SizedBox(
-            height: 36,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: sources.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final source = sources[index];
-                return _SourceChip(
-                  name: source.name,
-                  selected: enabledIds.contains(source.id),
-                  accent: _accentFor(source.id),
-                  enabled: !busy,
-                  onSelected: (v) => onToggle(source, v),
-                );
-              },
+    final enabled = [
+      for (final s in sources)
+        if (enabledIds.contains(s.id)) s,
+    ];
+    final preview = enabled.take(3).map((s) => s.name).join(', ');
+    final more = enabled.length > 3 ? ' +${enabled.length - 3}' : '';
+    final allOn = sources.isNotEmpty && enabled.length >= sources.length;
+    final subtitle = enabled.isEmpty
+        ? 'Ничего не выбрано'
+        : allOn
+            ? 'Все источники включены'
+            : '$preview$more';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: busy ? null : onOpen,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: AppTheme.inkLift,
+            border: Border.all(
+              color: AppTheme.paper.withValues(alpha: 0.07),
             ),
           ),
-      ],
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppTheme.moss.withValues(alpha: 0.55),
+                        AppTheme.mossBright.withValues(alpha: 0.28),
+                      ],
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.hub_outlined,
+                    color: AppTheme.lime,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Источники',
+                            style: GoogleFonts.syne(
+                              color: AppTheme.paper,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.lime.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${enabled.length}/${sources.length}',
+                              style: GoogleFonts.figtree(
+                                color: AppTheme.lime,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paperMuted,
+                          fontSize: 13,
+                          height: 1.25,
+                        ),
+                      ),
+                      if (enabled.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 8,
+                          child: Row(
+                            children: [
+                              for (final s in enabled.take(8)) ...[
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(right: 4),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _accentFor(s.id),
+                                  ),
+                                ),
+                              ],
+                              if (enabled.length > 8)
+                                Text(
+                                  '+${enabled.length - 8}',
+                                  style: GoogleFonts.figtree(
+                                    color: AppTheme.paperMuted,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: busy
+                      ? AppTheme.paperMuted.withValues(alpha: 0.35)
+                      : AppTheme.paperMuted,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
-class _SourceChip extends StatelessWidget {
-  const _SourceChip({
-    required this.name,
-    required this.selected,
-    required this.accent,
-    required this.enabled,
-    required this.onSelected,
+class _SourcesPickerSheet extends StatefulWidget {
+  const _SourcesPickerSheet({
+    required this.sources,
+    required this.enabledIds,
+    required this.onToggle,
+    required this.onToggleAll,
   });
 
-  final String name;
-  final bool selected;
-  final Color accent;
-  final bool enabled;
-  final ValueChanged<bool> onSelected;
+  final List<BrowserSource> sources;
+  final Set<String> enabledIds;
+  final void Function(BrowserSource source, bool enabled) onToggle;
+  final VoidCallback onToggleAll;
+
+  @override
+  State<_SourcesPickerSheet> createState() => _SourcesPickerSheetState();
+}
+
+class _SourcesPickerSheetState extends State<_SourcesPickerSheet> {
+  final _filter = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _filter.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(name),
-      selected: selected,
-      onSelected: enabled ? onSelected : null,
-      showCheckmark: false,
-      avatar: Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: selected ? accent : AppTheme.paperMuted.withValues(alpha: 0.4),
-        ),
-      ),
-      labelStyle: GoogleFonts.figtree(
-        color: selected ? AppTheme.paper : AppTheme.paperMuted,
-        fontWeight: FontWeight.w600,
-        fontSize: 12,
-      ),
-      selectedColor: accent.withValues(alpha: 0.28),
-      backgroundColor: AppTheme.inkLift,
-      side: BorderSide(
-        color: selected
-            ? accent.withValues(alpha: 0.45)
-            : AppTheme.paper.withValues(alpha: 0.06),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    final q = _query.trim().toLowerCase();
+    final filtered = [
+      for (final s in widget.sources)
+        if (q.isEmpty || s.name.toLowerCase().contains(q)) s,
+    ];
+    final enabledCount = widget.enabledIds.length;
+    final allOn = widget.sources.isNotEmpty &&
+        enabledCount >= widget.sources.length;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sheetH = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.sizeOf(context).height * 0.62;
+        return SizedBox(
+          height: sheetH,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Включено $enabledCount из ${widget.sources.length}',
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paperMuted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        widget.onToggleAll();
+                        setState(() {});
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.lime,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        allOn ? 'Оставить один' : 'Включить все',
+                        style: GoogleFonts.figtree(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _filter,
+                  onChanged: (v) => setState(() => _query = v),
+                  style:
+                      GoogleFonts.figtree(color: AppTheme.paper, fontSize: 15),
+                  decoration: InputDecoration(
+                    hintText: 'Найти источник…',
+                    hintStyle: GoogleFonts.figtree(
+                      color: AppTheme.paperMuted.withValues(alpha: 0.7),
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppTheme.paperMuted,
+                    ),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: () {
+                              _filter.clear();
+                              setState(() => _query = '');
+                            },
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: AppTheme.paperMuted,
+                            ),
+                          ),
+                    filled: true,
+                    fillColor: AppTheme.ink.withValues(alpha: 0.55),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Ничего не найдено',
+                            style: GoogleFonts.figtree(
+                              color: AppTheme.paperMuted,
+                              fontSize: 14,
+                            ),
+                          ),
+                        )
+                      : GridView.builder(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                            childAspectRatio: 2.55,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final source = filtered[index];
+                            final selected =
+                                widget.enabledIds.contains(source.id);
+                            final accent = _accentFor(source.id);
+                            final letter = source.name.trim().isEmpty
+                                ? '?'
+                                : source.name.trim()[0].toUpperCase();
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  widget.onToggle(source, !selected);
+                                  setState(() {});
+                                },
+                                borderRadius: BorderRadius.circular(14),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    color: selected
+                                        ? accent.withValues(alpha: 0.18)
+                                        : AppTheme.ink.withValues(alpha: 0.45),
+                                    border: Border.all(
+                                      color: selected
+                                          ? accent.withValues(alpha: 0.5)
+                                          : AppTheme.paper
+                                              .withValues(alpha: 0.06),
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      10,
+                                      8,
+                                      8,
+                                      8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 32,
+                                          height: 32,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            color: selected
+                                                ? accent.withValues(
+                                                    alpha: 0.35,
+                                                  )
+                                                : AppTheme.inkLift,
+                                          ),
+                                          child: Text(
+                                            letter,
+                                            style: GoogleFonts.syne(
+                                              color: selected
+                                                  ? AppTheme.paper
+                                                  : AppTheme.paperMuted,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            source.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.figtree(
+                                              color: selected
+                                                  ? AppTheme.paper
+                                                  : AppTheme.paperMuted,
+                                              fontWeight: selected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w600,
+                                              fontSize: 13,
+                                              height: 1.15,
+                                            ),
+                                          ),
+                                        ),
+                                        Icon(
+                                          selected
+                                              ? Icons.check_circle_rounded
+                                              : Icons.circle_outlined,
+                                          size: 18,
+                                          color: selected
+                                              ? accent
+                                              : AppTheme.paperMuted
+                                                  .withValues(alpha: 0.45),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 class _ResultsHeader extends StatelessWidget {
   const _ResultsHeader({
+    required this.title,
     required this.status,
     required this.error,
     required this.count,
     required this.searching,
   });
 
+  final String title;
   final String? status;
   final String? error;
   final int count;
@@ -902,14 +1229,13 @@ class _ResultsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const label = 'Результаты';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             Text(
-              label,
+              title,
               style: GoogleFonts.syne(
                 color: AppTheme.paper,
                 fontWeight: FontWeight.w700,
@@ -948,21 +1274,105 @@ class _ResultsHeader extends StatelessWidget {
           ],
         ),
         if (status != null || error != null) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             [if (status != null) status!, if (error != null) error!].join('\n'),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.figtree(
               color: error != null && count == 0
                   ? const Color(0xFFFF8A80)
                   : AppTheme.paperMuted,
               fontSize: 12,
-              height: 1.35,
+              height: 1.4,
             ),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _BrowserPlaylistTile extends StatelessWidget {
+  const _BrowserPlaylistTile({
+    required this.playlist,
+    required this.busy,
+    required this.onOpen,
+  });
+
+  final BrowserPlaylist playlist;
+  final bool busy;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 12.0;
+    return InkWell(
+      onTap: busy ? null : onOpen,
+      borderRadius: BorderRadius.circular(radius),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(radius),
+                child: ColoredBox(
+                  color: playlist.coverColor,
+                  child: Center(
+                    child: playlist.coverLabel != null
+                        ? Text(
+                            playlist.coverLabel!,
+                            style: GoogleFonts.syne(
+                              color: playlist.coverForeground,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 36,
+                              letterSpacing: 1.2,
+                            ),
+                          )
+                        : Icon(
+                            playlist.icon,
+                            color: playlist.coverForeground,
+                            size: 48,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            playlist.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paper,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            playlist.subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paperMuted,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -987,7 +1397,7 @@ class _EmptyState extends StatelessWidget {
         ? 'Опрашиваем $activeCount источников'
         : (nothingFound
             ? 'Попробуй другой запрос или другие источники'
-            : 'Введи артиста или название трека');
+            : 'Выбери плейлист или введи запрос');
 
     return Center(
       child: Padding(

@@ -51,6 +51,18 @@ class LmusicSource implements BrowserSource {
     if (_owned) _client.close(force: true);
   }
 
+  /// Каталог/чарт по пути, напр. `top_kz/monthly`, `hit-parade/shazam-music`.
+  Future<List<BrowserHit>> catalog(String path, {int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final clean = path.replaceAll(RegExp(r'^/+|/+$'), '');
+    final html = await _getText(Uri.parse('$_origin/$clean'));
+    final items = _parseItems(html);
+    if (items.isEmpty) return const [];
+    return [
+      for (final item in items.take(take)) _toHit(item),
+    ];
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
@@ -63,18 +75,21 @@ class LmusicSource implements BrowserSource {
     if (items.isEmpty) return const [];
     final take = limit.clamp(1, 50);
     return [
-      for (final item in items.take(take))
-        BrowserHit(
-          sourceId: id,
-          id: item.id,
-          title: item.title,
-          artist: item.artist.isEmpty ? 'Unknown' : item.artist,
-          subtitle: null,
-          duration: item.duration,
-          license: null,
-          downloadUrl: item.fileUrl,
-        ),
+      for (final item in items.take(take)) _toHit(item),
     ];
+  }
+
+  BrowserHit _toHit(_TrackItem item) {
+    return BrowserHit(
+      sourceId: id,
+      id: item.id,
+      title: item.title,
+      artist: item.artist.isEmpty ? 'Unknown' : item.artist,
+      subtitle: null,
+      duration: item.duration,
+      license: null,
+      downloadUrl: item.fileUrl,
+    );
   }
 
   @override

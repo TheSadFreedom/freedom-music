@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../browser/browser_hit.dart';
+import '../browser/browser_playlist.dart';
 import '../browser/browser_result_ranker.dart';
 import '../browser/browser_source.dart';
 import '../browser/browser_sources.dart';
@@ -15,6 +16,7 @@ import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../widgets/library_track_picker.dart';
+import 'browser_playlist_detail_screen.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 
@@ -29,10 +31,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final TextEditingController _query;
   late final List<BrowserSource> _sources;
   late final Map<String, BrowserSource> _byId;
+  late final List<BrowserPlaylist> _playlists;
   late final Set<String> _enabledIds;
   List<BrowserHit> _hits = const [];
   bool _searching = false;
-  bool _sourcesExpanded = false;
+  int _loadGen = 0;
   String? _downloadingKey;
   String? _previewingKey;
   String? _replacingKey;
@@ -48,6 +51,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
     _sources = createBrowserSources();
     _byId = {for (final s in _sources) s.id: s};
+    _playlists = createBrowserPlaylists(_byId);
     _enabledIds = {for (final s in _sources) s.id};
   }
 
@@ -111,9 +115,38 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
   }
 
+  void _resetToHome() {
+    _loadGen++;
+    setState(() {
+      _query.clear();
+      _hits = const [];
+      _searching = false;
+      _error = null;
+      _status = null;
+    });
+  }
+
+  Future<void> _openPlaylist(BrowserPlaylist playlist) async {
+    if (_searching ||
+        _downloadingKey != null ||
+        _previewingKey != null ||
+        _replacingKey != null) {
+      return;
+    }
+    final source = _byId[playlist.sourceId];
+    if (source == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BrowserPlaylistDetailScreen(
+          playlist: playlist,
+          source: source,
+        ),
+      ),
+    );
+  }
+
   Future<void> _search() async {
     final q = _query.text.trim();
-    if (_searching) return;
     final active = _activeSources;
     if (active.isEmpty) {
       setState(() {
@@ -124,14 +157,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
       return;
     }
     if (q.isEmpty) {
-      setState(() {
-        _hits = const [];
-        _error = null;
-        _status = null;
-      });
+      _resetToHome();
       return;
     }
 
+    final gen = ++_loadGen;
     setState(() {
       _searching = true;
       _error = null;
@@ -156,7 +186,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }(),
     ]);
 
-    if (!mounted) return;
+    if (!mounted || gen != _loadGen) return;
     final refined = BrowserResultRanker.refine(q, merged);
 
     setState(() {
@@ -166,17 +196,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _status = 'Ничего не найдено';
         _error = errors.isEmpty ? null : errors.join('\n');
       } else {
-        final bySource = <String, int>{};
-        for (final hit in refined) {
-          bySource[hit.sourceId] = (bySource[hit.sourceId] ?? 0) + 1;
-        }
-        final parts = [
-          for (final s in _sources)
-            if (bySource.containsKey(s.id)) '${s.name}: ${bySource[s.id]}',
-        ];
-        final trimmed =
-            refined.length < merged.length ? ' из ${merged.length}' : '';
-        _status = '${refined.length}$trimmed · ${parts.join(' · ')}';
+        _status = null;
         _error = errors.isEmpty ? null : 'Частично: ${errors.join('; ')}';
       }
     });
@@ -366,7 +386,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _previewingKey != null ||
         _replacingKey != null;
     final hPad = phone ? 16.0 : 22.0;
-    final emptyQuery = _query.text.trim().isEmpty && !_searching;
+    final showPlaylistsHome = _playlists.isNotEmpty &&
+        !_searching &&
+        _hits.isEmpty &&
+        _status == null &&
+        _error == null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -379,15 +403,18 @@ class _BrowserScreenState extends State<BrowserScreen> {
               searching: _searching,
               enabledCount: _enabledIds.length,
               totalCount: _sources.length,
-              onSearch:
-                  busy && !_searching ? null : (_searching ? null : _search),
+              onSearch: (_downloadingKey != null ||
+                      _previewingKey != null ||
+                      _replacingKey != null)
+                  ? null
+                  : _search,
               onClear: () {
-                _query.clear();
-                setState(() {
-                  _hits = const [];
-                  _error = null;
-                  _status = null;
-                });
+                if (_downloadingKey != null ||
+                    _previewingKey != null ||
+                    _replacingKey != null) {
+                  return;
+                }
+                _resetToHome();
               },
             ),
           ),
@@ -397,39 +424,74 @@ class _BrowserScreenState extends State<BrowserScreen> {
               child: _SourcesBar(
                 sources: _sources,
                 enabledIds: _enabledIds,
-                expanded: _sourcesExpanded,
                 busy: busy,
                 onToggle: _toggleSource,
                 onToggleAll: _toggleAllSources,
-                onExpandToggle: () =>
-                    setState(() => _sourcesExpanded = !_sourcesExpanded),
               ),
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 6),
-              child: _ResultsHeader(
-                status: _status,
-                error: _error,
-                count: _hits.length,
-                searching: _searching,
-              ),
-            ),
-          ),
-          if (_hits.isEmpty)
+          if (showPlaylistsHome) ...[
             SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 100),
-                child: _EmptyState(
-                  searching: _searching,
-                  activeCount: _activeSources.length,
-                  nothingFound: _status == 'Ничего не найдено',
+                padding: EdgeInsets.fromLTRB(hPad, 18, hPad, 12),
+                child: Text(
+                  'Плейлисты',
+                  style: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
                 ),
               ),
-            )
-          else
-            ...[
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 100),
+              sliver: SliverGrid(
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: phone ? 160 : 180,
+                  mainAxisSpacing: 18,
+                  crossAxisSpacing: 14,
+                  // Квадратная обложка + подписи под ней.
+                  childAspectRatio: 0.78,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final pl = _playlists[index];
+                    return _BrowserPlaylistTile(
+                      playlist: pl,
+                      busy: busy,
+                      onOpen: () => _openPlaylist(pl),
+                    );
+                  },
+                  childCount: _playlists.length,
+                ),
+              ),
+            ),
+          ] else ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 6),
+                child: _ResultsHeader(
+                  title: 'Результаты',
+                  status: _status,
+                  error: _error,
+                  count: _hits.length,
+                  searching: _searching,
+                ),
+              ),
+            ),
+            if (_hits.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 100),
+                  child: _EmptyState(
+                    searching: _searching,
+                    activeCount: _activeSources.length,
+                    nothingFound: _status == 'Ничего не найдено',
+                  ),
+                ),
+              )
+            else ...[
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 0),
                 sliver: SliverList(
@@ -465,8 +527,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
-          if (emptyQuery || _hits.isEmpty)
-            const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          ],
         ],
       ),
     );
@@ -721,20 +782,16 @@ class _SourcesBar extends StatelessWidget {
   const _SourcesBar({
     required this.sources,
     required this.enabledIds,
-    required this.expanded,
     required this.busy,
     required this.onToggle,
     required this.onToggleAll,
-    required this.onExpandToggle,
   });
 
   final List<BrowserSource> sources;
   final Set<String> enabledIds;
-  final bool expanded;
   final bool busy;
   final void Function(BrowserSource source, bool enabled) onToggle;
   final VoidCallback onToggleAll;
-  final VoidCallback onExpandToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -779,60 +836,27 @@ class _SourcesBar extends StatelessWidget {
                 ),
               ),
             ),
-            const Spacer(),
-            TextButton(
-              onPressed: onExpandToggle,
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.mossBright,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                expanded ? 'Лента' : 'Сеткой',
-                style: GoogleFonts.figtree(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ),
           ],
         ),
         const SizedBox(height: 8),
-        if (expanded)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final source in sources)
-                _SourceChip(
-                  name: source.name,
-                  selected: enabledIds.contains(source.id),
-                  accent: _accentFor(source.id),
-                  enabled: !busy,
-                  onSelected: (v) => onToggle(source, v),
-                ),
-            ],
-          )
-        else
-          SizedBox(
-            height: 36,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: sources.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final source = sources[index];
-                return _SourceChip(
-                  name: source.name,
-                  selected: enabledIds.contains(source.id),
-                  accent: _accentFor(source.id),
-                  enabled: !busy,
-                  onSelected: (v) => onToggle(source, v),
-                );
-              },
-            ),
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: sources.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final source = sources[index];
+              return _SourceChip(
+                name: source.name,
+                selected: enabledIds.contains(source.id),
+                accent: _accentFor(source.id),
+                enabled: !busy,
+                onSelected: (v) => onToggle(source, v),
+              );
+            },
           ),
+        ),
       ],
     );
   }
@@ -889,12 +913,14 @@ class _SourceChip extends StatelessWidget {
 
 class _ResultsHeader extends StatelessWidget {
   const _ResultsHeader({
+    required this.title,
     required this.status,
     required this.error,
     required this.count,
     required this.searching,
   });
 
+  final String title;
   final String? status;
   final String? error;
   final int count;
@@ -902,14 +928,13 @@ class _ResultsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const label = 'Результаты';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             Text(
-              label,
+              title,
               style: GoogleFonts.syne(
                 color: AppTheme.paper,
                 fontWeight: FontWeight.w700,
@@ -948,21 +973,105 @@ class _ResultsHeader extends StatelessWidget {
           ],
         ),
         if (status != null || error != null) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             [if (status != null) status!, if (error != null) error!].join('\n'),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.figtree(
               color: error != null && count == 0
                   ? const Color(0xFFFF8A80)
                   : AppTheme.paperMuted,
               fontSize: 12,
-              height: 1.35,
+              height: 1.4,
             ),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _BrowserPlaylistTile extends StatelessWidget {
+  const _BrowserPlaylistTile({
+    required this.playlist,
+    required this.busy,
+    required this.onOpen,
+  });
+
+  final BrowserPlaylist playlist;
+  final bool busy;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 12.0;
+    return InkWell(
+      onTap: busy ? null : onOpen,
+      borderRadius: BorderRadius.circular(radius),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(radius),
+                child: ColoredBox(
+                  color: playlist.coverColor,
+                  child: Center(
+                    child: playlist.coverLabel != null
+                        ? Text(
+                            playlist.coverLabel!,
+                            style: GoogleFonts.syne(
+                              color: playlist.coverForeground,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 36,
+                              letterSpacing: 1.2,
+                            ),
+                          )
+                        : Icon(
+                            playlist.icon,
+                            color: playlist.coverForeground,
+                            size: 48,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            playlist.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paper,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            playlist.subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paperMuted,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -987,7 +1096,7 @@ class _EmptyState extends StatelessWidget {
         ? 'Опрашиваем $activeCount источников'
         : (nothingFound
             ? 'Попробуй другой запрос или другие источники'
-            : 'Введи артиста или название трека');
+            : 'Выбери плейлист или введи запрос');
 
     return Center(
       child: Padding(

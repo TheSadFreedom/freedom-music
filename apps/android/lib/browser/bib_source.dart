@@ -73,6 +73,13 @@ class BibSource implements BrowserSource, BrowserFeaturedSource {
     return _toHits(_parseItems(html), take);
   }
 
+  /// Плейлист «Популярное» с главной — https://bib.fm/
+  Future<List<BrowserHit>> popular({int limit = 100}) async {
+    final take = limit.clamp(1, 200);
+    final html = await _getText(Uri.parse('$_origin/'));
+    return _toHits(_parseItems(html), take);
+  }
+
   @override
   Future<List<BrowserHit>> search(String query, {int limit = 30}) async {
     final q = query.trim();
