@@ -38,6 +38,7 @@ class SyncService extends ChangeNotifier {
   bool _needsDriveConsent = false;
   Timer? _autoSyncTimer;
   bool _autoSyncQueued = false;
+  bool _shuttingDown = false;
 
   bool get busy => _busy;
   bool get isSignedIn => _session != null || _auth.isSignedIn;
@@ -138,8 +139,18 @@ class SyncService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Stop scheduling / starting sync — in-flight run may finish, but quit
+  /// does not wait for it.
+  void cancelPendingWork() {
+    _shuttingDown = true;
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+    _autoSyncQueued = false;
+  }
+
   /// [interactive]: if false (auto-sync), never opens the sign-in UI.
   Future<void> syncNow({bool interactive = true}) async {
+    if (_shuttingDown) return;
     if (_busy) {
       if (!interactive) _autoSyncQueued = true;
       return;
@@ -226,6 +237,7 @@ class SyncService extends ChangeNotifier {
 
   /// Debounced background sync after local outbox changes.
   void _scheduleAutoSync() {
+    if (_shuttingDown) return;
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(_autoSyncDelay, () {
       unawaited(syncNow(interactive: false));

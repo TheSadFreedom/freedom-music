@@ -214,13 +214,21 @@ class DesktopShell extends ChangeNotifier with WindowListener {
   Future<void> quit() async {
     if (_quitting) return;
     _quitting = true;
-    await _player.persistSession();
+    try {
+      await _player.shutdownForQuit().timeout(
+        const Duration(milliseconds: 1200),
+      );
+    } catch (_) {}
     windowManager.removeListener(this);
     _listeners.clear();
     _tray?.dispose();
     _tray = null;
-    await windowManager.setPreventClose(false);
-    await windowManager.destroy();
+    try {
+      await windowManager.setPreventClose(false);
+    } catch (_) {}
+    try {
+      await windowManager.destroy();
+    } catch (_) {}
   }
 
   @override

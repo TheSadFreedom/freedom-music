@@ -423,6 +423,8 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _quitPersisted = false;
+
   Future<void> persistSession() async {
     _persistTimer?.cancel();
     if (_queue.isEmpty ||
@@ -438,6 +440,39 @@ class PlayerService extends ChangeNotifier {
       shuffle: _shuffle,
       repeat: _repeat.name,
     );
+  }
+
+  /// Fast path for window close: stop engines, cheap persist, cancel bg work.
+  Future<void> shutdownForQuit() async {
+    _persistTimer?.cancel();
+    _eqDebounce?.cancel();
+    _stopPositionPoll();
+    _flushListenMs();
+    _library.requestShutdown();
+
+    try {
+      await _cancelCrossfade().timeout(const Duration(milliseconds: 200));
+    } catch (_) {}
+
+    Future<void> quiet(Future<void> Function() op) async {
+      try {
+        await op().timeout(const Duration(milliseconds: 250));
+      } catch (_) {}
+    }
+
+    await Future.wait([
+      quiet(_primary.pause),
+      quiet(_secondary.pause),
+    ]);
+    await Future.wait([
+      quiet(_primary.stop),
+      quiet(_secondary.stop),
+    ]);
+
+    try {
+      await persistSession().timeout(const Duration(milliseconds: 300));
+      _quitPersisted = true;
+    } catch (_) {}
   }
 
   /// Стрим по URL без сохранения в библиотеку (превью из Браузера).
@@ -1078,7 +1113,9 @@ class PlayerService extends ChangeNotifier {
     _stopPositionPoll();
     _persistTimer?.cancel();
     _eqDebounce?.cancel();
-    unawaited(persistSession());
+    if (!_quitPersisted) {
+      unawaited(persistSession());
+    }
     unawaited(_playerA.dispose());
     unawaited(_playerB.dispose());
     super.dispose();
