@@ -173,3 +173,12 @@ class DriveFileMoveGlyph extends StatelessWidget {
     return const Icon(Icons.drive_file_move_outlined);
   }
 }
+
+class CloudOutlinedGlyph extends StatelessWidget {
+  const CloudOutlinedGlyph({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.cloud_outlined);
+  }
+}
+

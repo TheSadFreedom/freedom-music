@@ -52,3 +52,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Yandex OAuth (copied locally, do not commit)
+assets/secrets/

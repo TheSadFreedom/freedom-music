@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fm_mod_protocol/fm_mod_protocol.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../services/desktop_shell.dart';
+import '../services/mod_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
@@ -19,7 +21,6 @@ import 'calendar_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
-import 'browser_screen.dart';
 import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
@@ -36,8 +37,9 @@ class _AppShellState extends State<AppShell> {
   final Set<int> _openedTabs = {0};
 
   /// Per-tab navigators so detail pages don't cover the mini player.
+  /// Indices: 0..5 content, 6 settings. Sidecar mods are actions, not tabs.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    8,
+    7,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -58,7 +60,10 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-  static const _navItems = <_NavItem>[
+  static const _topCount = 6;
+  static const _settingsTab = 6;
+
+  static const _tabItems = <_NavItem>[
     _NavItem(
       icon: Icons.home_outlined,
       selectedIcon: Icons.home,
@@ -91,19 +96,29 @@ class _AppShellState extends State<AppShell> {
       label: 'Плейлисты',
     ),
     _NavItem(
-      icon: Icons.travel_explore_outlined,
-      selectedIcon: Icons.travel_explore,
-      label: 'Браузер',
-    ),
-    _NavItem(
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings,
       label: 'Настройки',
     ),
   ];
 
-  static const _topCount = 6;
-  static const _browserIndex = 6;
+  List<_NavSlot> _slots(ModService mods) {
+    return [
+      for (var i = 0; i < _topCount; i++)
+        _NavSlot(item: _tabItems[i], tabIndex: i),
+      for (final mod in mods.mods)
+        _NavSlot(
+          item: _NavItem(
+            icon: Icons.extension_outlined,
+            selectedIcon: Icons.extension,
+            label: mod.name,
+          ),
+          tabIndex: null,
+          mod: mod,
+        ),
+      _NavSlot(item: _tabItems[_settingsTab], tabIndex: _settingsTab),
+    ];
+  }
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
@@ -113,7 +128,6 @@ class _AppShellState extends State<AppShell> {
       3 => const ChartScreen(),
       4 => const CalendarScreen(),
       5 => const PlaylistsScreen(),
-      6 => const BrowserScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -128,7 +142,6 @@ class _AppShellState extends State<AppShell> {
               3 => const Color(0xFF8B6B3D),
               4 => const Color(0xFF3D6E8B),
               5 => const Color(0xFF5A3A6E),
-              6 => const Color(0xFF3D5A8B),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
@@ -136,7 +149,6 @@ class _AppShellState extends State<AppShell> {
               4 => const Color(0xFF2A4A5C),
               3 => const Color(0xFF5A3A2A),
               2 => const Color(0xFF3A4A2A),
-              6 => const Color(0xFF2A3A5C),
               _ => const Color(0xFF2A4A5C),
             },
           ),
@@ -145,7 +157,7 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  void _select(int i) {
+  void _selectTab(int i) {
     final firstVisit = _openedTabs.add(i);
     if (i == _index) {
       _navKeys[i].currentState?.popUntil((r) => r.isFirst);
@@ -154,6 +166,32 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     setState(() => _index = i);
+  }
+
+  Future<void> _openMod(ModService mods, ModManifest mod) async {
+    try {
+      await mods.openMod(mod);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Не удалось открыть мод «${mod.name}»: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.inkLift,
+        ),
+      );
+    }
+  }
+
+  void _onSlot(int slotIndex, List<_NavSlot> slots, ModService mods) {
+    final slot = slots[slotIndex];
+    final tab = slot.tabIndex;
+    if (tab == null) {
+      final mod = slot.mod;
+      if (mod != null) _openMod(mods, mod);
+      return;
+    }
+    _selectTab(tab);
   }
 
   bool get _textInputFocused {
@@ -220,6 +258,10 @@ class _AppShellState extends State<AppShell> {
     final desktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
     final shell = desktop ? context.watch<DesktopShell>() : null;
     final compact = shell?.compactMode ?? false;
+    final mods = context.watch<ModService>();
+    final slots = _slots(mods);
+    final selectedSlot = slots.indexWhere((s) => s.tabIndex == _index);
+    final railSelected = selectedSlot >= 0 ? selectedSlot : 0;
 
     if (compact) {
       return const Material(
@@ -232,18 +274,18 @@ class _AppShellState extends State<AppShell> {
       children: [
         if (wide)
           _SideRail(
-            selectedIndex: _index,
-            onSelect: _select,
-            items: _navItems,
+            selectedIndex: railSelected,
+            onSelect: (i) => _onSlot(i, slots, mods),
+            items: [for (final s in slots) s.item],
             topCount: _topCount,
-            bottomStartIndex: _browserIndex,
+            bottomStartIndex: _topCount,
           ),
         if (wide) const VerticalDivider(width: 1),
         Expanded(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              for (var i = 0; i < _navItems.length; i++)
+              for (var i = 0; i < _tabItems.length; i++)
                 if (_openedTabs.contains(i))
                   // Hidden tabs keep their navigator, but Offstage skips
                   // layout and paint. Tickers stay off so backdrops do not
@@ -282,18 +324,19 @@ class _AppShellState extends State<AppShell> {
             ),
             if (!wide)
               NavigationBar(
-                selectedIndex: _index,
-                onDestinationSelected: _select,
+                selectedIndex: railSelected,
+                onDestinationSelected: (i) => _onSlot(i, slots, mods),
                 height: phone ? 64 : 56,
                 labelBehavior: phone
                     ? NavigationDestinationLabelBehavior.alwaysShow
                     : NavigationDestinationLabelBehavior.alwaysHide,
                 destinations: [
-                  for (final item in _navItems)
+                  for (final slot in slots)
                     NavigationDestination(
-                      icon: item.glyph ?? Icon(item.icon),
-                      selectedIcon: item.glyph ?? Icon(item.selectedIcon),
-                      label: item.label,
+                      icon: slot.item.glyph ?? Icon(slot.item.icon),
+                      selectedIcon:
+                          slot.item.glyph ?? Icon(slot.item.selectedIcon),
+                      label: slot.item.label,
                     ),
                 ],
               ),
@@ -302,6 +345,17 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+}
+
+class _NavSlot {
+  const _NavSlot({required this.item, required this.tabIndex, this.mod});
+
+  final _NavItem item;
+
+  /// Null = sidecar mod action, not a shell tab.
+  final int? tabIndex;
+
+  final ModManifest? mod;
 }
 
 class _NavItem {

@@ -59,8 +59,7 @@ class PlaylistsScreen extends StatelessWidget {
                       _itemForPlaylist(
                         context,
                         pl,
-                        count: library.metaPlaylistTracks(pl)?.length ??
-                            pl.trackCount,
+                        count: pl.trackCount,
                       ),
                   ],
                 ),
@@ -71,8 +70,7 @@ class PlaylistsScreen extends StatelessWidget {
                     _itemForPlaylist(
                       context,
                       pl,
-                      count: library.metaPlaylistTracks(pl)?.length ??
-                          pl.trackCount,
+                      count: pl.trackCount,
                     ),
                 ],
               ),
@@ -141,17 +139,15 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   List<Playlist> _systemPlaylists(List<Playlist> playlists) {
-    final system = playlists.where((p) => p.isSystem).toList()
+    final system = playlists
+        .where((p) => p.isSystem && !p.isMetaCatalog)
+        .toList()
       ..sort((a, b) {
         int rank(Playlist p) {
           if (p.isNew) return 0;
-          if (p.isIncomplete) return 1;
-          if (p.isNoProducer) return 2;
-          if (p.isMissingGenre) return 3;
-          if (p.isMissingLyrics) return 4;
-          if (p.isMetadataReady) return 5;
-          if (p.isTrash) return 6;
-          return 7;
+          if (p.isCloud) return 1;
+          if (p.isTrash) return 2;
+          return 3;
         }
 
         return rank(a).compareTo(rank(b));
@@ -233,6 +229,9 @@ class PlaylistsScreen extends StatelessWidget {
           ? 'Пока пусто'
           : '$count за ${Playlist.newTrackDays} дн.';
     }
+    if (playlist.isCloud) {
+      return '$count / ${Playlist.cloudTrackLimit}';
+    }
     if (playlist.isIncomplete) {
       return count == 0 ? 'Всё заполнено' : '$count без полей';
     }
@@ -256,6 +255,7 @@ class PlaylistsScreen extends StatelessWidget {
   IconData _systemIcon(Playlist playlist) {
     if (playlist.isTrash) return Icons.delete_outline_rounded;
     if (playlist.isNew) return Icons.fiber_new_rounded;
+    if (playlist.isCloud) return Icons.cloud_outlined;
     if (playlist.isIncomplete) return Icons.article_outlined;
     if (playlist.isNoProducer) return Icons.headphones_rounded;
     if (playlist.isMissingGenre) return Icons.sell_outlined;
@@ -267,6 +267,7 @@ class PlaylistsScreen extends StatelessWidget {
   Color _systemIconColor(Playlist playlist) {
     if (playlist.isTrash) return AppTheme.paperMuted;
     if (playlist.isNew) return _yellow;
+    if (playlist.isCloud) return const Color(0xFF7EC8FF);
     if (playlist.isIncomplete) return AppTheme.lime;
     if (playlist.isNoProducer) return AppTheme.mossBright;
     if (playlist.isMissingGenre) return _yellow;
@@ -278,17 +279,6 @@ class PlaylistsScreen extends StatelessWidget {
 
   Future<void> _rename(BuildContext context, Playlist pl) =>
       _renamePlaylist(context, pl);
-}
-
-String _metaEmptyLabel(Playlist playlist) {
-  return switch (playlist.systemKind) {
-    Playlist.kindIncomplete => 'Треков с пустыми метаданными нет.',
-    Playlist.kindNoProducer => 'Треков без продюсера нет.',
-    Playlist.kindMissingGenre => 'Треков без жанра нет.',
-    Playlist.kindMissingLyrics => 'Треков без текста нет.',
-    Playlist.kindMetadataReady => 'Треков с полными метаданными пока нет.',
-    _ => 'Плейлист пуст.',
-  };
 }
 
 String _trackCountLabel(int count) {
@@ -857,21 +847,19 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final dateLabel = DateFormat.MMMd().format(pl.lastTouched);
     final isTrash = pl.isTrash;
     final isNew = pl.isNew;
+    final isCloud = pl.isCloud;
     final isSystem = pl.isSystem;
-    final live = library.metaPlaylistTracks(pl);
-    final liveList = live != null;
+    final canEditTracks = !isSystem || isCloud;
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
       body: FutureBuilder<List<Track>>(
         future: _future,
         builder: (context, snapshot) {
-          final loaded = live ??
-              [
-                for (final t in snapshot.data ?? const <Track>[])
-                  library.resolveTrack(t),
-              ];
-          final tracks = loaded;
+          final tracks = [
+            for (final t in snapshot.data ?? const <Track>[])
+              library.resolveTrack(t),
+          ];
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks
@@ -913,7 +901,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         ),
                       ),
                     ),
-                  if (!isSystem)
+                  if (canEditTracks)
                     TextButton(
                       onPressed: () => _addTrack(context),
                       child: Text(
@@ -928,7 +916,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: _PlaylistHeader(
-                  playlist: (liveList || snapshot.hasData)
+                  playlist: snapshot.hasData
                       ? pl.copyWith(trackCount: tracks.length)
                       : pl,
                   dateLabel: dateLabel,
@@ -968,8 +956,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ),
               ),
-              if (!liveList &&
-                  snapshot.connectionState != ConnectionState.done)
+              if (snapshot.connectionState != ConnectionState.done)
                 const SliverFillRemaining(
                   child: Center(child: CircularProgressIndicator()),
                 )
@@ -981,7 +968,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           ? 'Корзина пуста.'
                           : isNew
                               ? 'Новых треков за ${Playlist.newTrackDays} дней нет.'
-                              : _metaEmptyLabel(pl),
+                              : isCloud
+                                  ? 'В «Облаке» пока пусто.'
+                                  : 'Плейлист пуст.',
                       style: GoogleFonts.figtree(color: AppTheme.paperMuted),
                     ),
                   ),
@@ -1000,7 +989,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           tracks,
                           startIndex: playIndex < 0 ? 0 : playIndex,
                         ),
-                        onRemove: isSystem
+                        onRemove: !canEditTracks
                             ? null
                             : () async {
                                 await library.removeFromPlaylist(
@@ -1227,7 +1216,21 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     );
 
     if (selected == null) return;
-    await library.addToPlaylist(widget.playlistId, selected.trackKey);
+    final result =
+        await library.addToPlaylist(widget.playlistId, selected.trackKey);
+    if (!mounted) return;
+    if (result == LibraryService.addLimit) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'В Облаке максимум ${Playlist.cloudTrackLimit} треков',
+            style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.inkLift,
+        ),
+      );
+    }
     _reload();
   }
 }

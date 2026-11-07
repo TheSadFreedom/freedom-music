@@ -5,42 +5,65 @@ import 'package:uuid/uuid.dart';
 
 import '../data/database.dart';
 import '../data/track_key.dart';
+import '../models/track.dart';
+import '../services/library_service.dart';
 import '../services/settings_service.dart';
-import 'google_drive_auth.dart';
-import 'google_drive_client.dart';
+import 'cloud_auth_session.dart';
+import 'artist_photos_sync.dart';
+import 'cloud_playlist_sync.dart';
 import 'sync_engine.dart';
 import 'sync_event.dart';
+import 'yandex_disk_auth.dart';
+import 'yandex_disk_client.dart';
 
-/// Orchestrates Google Drive sync and exposes status for Settings.
+/// Orchestrates Yandex Disk sync and exposes status for Settings.
 class SyncService extends ChangeNotifier {
   SyncService({
     required AppDatabase db,
     required SettingsService settings,
+    String? authStorageDir,
   })  : _db = db,
         _settings = settings,
-        _engine = SyncEngine(db: db, settings: settings);
+        _engine = SyncEngine(db: db, settings: settings),
+        _auth = YandexDiskAuth(storageDir: authStorageDir);
 
   final AppDatabase _db;
   final SettingsService _settings;
   final SyncEngine _engine;
-  final GoogleDriveAuth _auth = GoogleDriveAuth();
+  final YandexDiskAuth _auth;
   final _uuid = const Uuid();
 
   static const _autoSyncDelay = Duration(seconds: 2);
+  static const providerId = 'yandex';
+  static const providerLabel = 'Яндекс.Диск';
 
-  DriveAuthSession? _session;
+  CloudAuthSession? _session;
+  LibraryService? _library;
   bool _busy = false;
   String? _message;
   DateTime? _lastSyncAt;
   bool _libraryNeedsReload = false;
-  bool _needsDriveConsent = false;
+  bool _cloudDirty = false;
   Timer? _autoSyncTimer;
   bool _autoSyncQueued = false;
+  bool _shuttingDown = false;
+
+  void attachLibrary(LibraryService library) {
+    _library = library;
+  }
+
+  void markCloudPlaylistDirty() {
+    _cloudDirty = true;
+    unawaited(CloudPlaylistSync.markDirty(_db));
+    _scheduleAutoSync();
+  }
 
   bool get busy => _busy;
   bool get isSignedIn => _session != null || _auth.isSignedIn;
-  bool get hasDriveAccess => _session != null;
-  bool get needsDriveConsent => _needsDriveConsent;
+  bool get hasCloudAccess => _session != null;
+  /// Deprecated alias for UI that still checks Drive naming.
+  bool get hasDriveAccess => hasCloudAccess;
+  bool get needsDriveConsent => false;
   String? get email => _session?.email ?? _auth.email;
   String? get message => _message;
   DateTime? get lastSyncAt => _lastSyncAt;
@@ -50,43 +73,30 @@ class SyncService extends ChangeNotifier {
 
   Future<void> tryRestoreSession() async {
     final session = await _auth.trySilent();
-    if (session == null) {
-      if (_auth.isSignedIn) {
-        _needsDriveConsent = true;
-        notifyListeners();
-      }
-      return;
-    }
     _session = session;
-    _needsDriveConsent = false;
     notifyListeners();
   }
 
-  /// Account sign-in. On Android Drive consent may need a second tap.
-  Future<void> signIn() async {
+  Future<void> signIn({
+    Future<String?> Function()? promptYandexCode,
+  }) async {
     _busy = true;
-    _message = 'Вход в Google…';
+    _message = 'Вход в Яндекс…';
     notifyListeners();
     try {
-      final email = await _auth.signInAccount();
-      _message = 'Проверка доступа к Drive…';
-      notifyListeners();
-      final session = await _auth.authorizeDrive(interactive: false);
-      if (session != null) {
-        _session = session;
-        _needsDriveConsent = false;
-        _message = 'Вход выполнен: ${session.email}';
-        return;
+      final prompt = promptYandexCode;
+      if (prompt == null) {
+        throw StateError('Нужен ввод кода подтверждения Яндекс');
       }
-      _needsDriveConsent = true;
-      _message =
-          'Аккаунт $email. Нажмите «Разрешить Drive», чтобы открыть доступ.';
+      final session = await _auth.signIn(promptCode: prompt);
+      _session = session;
+      _message = 'Вход выполнен: ${session.email}';
     } catch (e) {
       final text = '$e';
-      if (text.contains('canceled') || text.contains('Cancelled')) {
-        _message =
-            'Вход отменён. Если окно закрылось само — добавьте SHA-1 '
-            'release-ключа в Android OAuth client (Google Cloud).';
+      if (text.contains('canceled') ||
+          text.contains('Cancelled') ||
+          text.contains('отмен')) {
+        _message = 'Вход в Яндекс отменён.';
       } else {
         _message = 'Ошибка входа: $e';
       }
@@ -97,36 +107,11 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  /// Must be called from a fresh user gesture (button/dialog).
-  Future<void> grantDriveAccess() async {
-    _busy = true;
-    _message = 'Запрос доступа к Drive…';
-    notifyListeners();
-    try {
-      final session = await _auth.authorizeDrive(interactive: true);
-      if (session == null) {
-        _needsDriveConsent = true;
-        _message = 'Доступ к Drive не получен';
-        throw StateError(_message!);
-      }
-      _session = session;
-      _needsDriveConsent = false;
-      _message = 'Доступ к Drive разрешён: ${session.email}';
-    } catch (e) {
-      _message = 'Ошибка доступа к Drive: $e';
-      rethrow;
-    } finally {
-      _busy = false;
-      notifyListeners();
-    }
-  }
-
   Future<void> signOut() async {
     final session = _session;
     _session = null;
-    _needsDriveConsent = false;
     _busy = false;
-    _message = 'Вы вышли из Google';
+    _message = 'Вы вышли из Яндекс';
     notifyListeners();
     try {
       await _auth.signOut();
@@ -136,45 +121,33 @@ class SyncService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// [interactive]: if false (auto-sync), never opens the sign-in UI.
+  void cancelPendingWork() {
+    _shuttingDown = true;
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+    _autoSyncQueued = false;
+  }
+
   Future<void> syncNow({bool interactive = true}) async {
+    if (_shuttingDown) return;
     if (_busy) {
       if (!interactive) _autoSyncQueued = true;
       return;
     }
 
-    var session = _session;
-    session ??= await _auth.trySilent();
+    var session = _session ?? await _auth.trySilent();
     if (session == null) {
       if (!interactive) return;
-      if (_auth.isSignedIn || _needsDriveConsent) {
-        _message =
-            'Сначала разрешите доступ к Drive кнопкой «Разрешить Drive»';
-        notifyListeners();
-        return;
-      }
-      try {
-        await signIn();
-      } catch (e) {
-        _message = 'Ошибка синка: $e';
-        notifyListeners();
-        return;
-      }
-      session = _session;
-      if (session == null) {
-        _message =
-            'Сначала разрешите доступ к Drive кнопкой «Разрешить Drive»';
-        notifyListeners();
-        return;
-      }
+      _message = 'Сначала войдите в Яндекс кнопкой «Войти»';
+      notifyListeners();
+      return;
     }
     _session = session;
 
     _busy = true;
-    _message = 'Синхронизация…';
+    _message = 'Синхронизация ($providerLabel)…';
     notifyListeners();
     try {
-      // Push current settings flags each sync (LWW).
       final deviceId = await _db.getOrCreateDeviceId();
       final flags = _settings.exportSettingsFlags();
       await _db.enqueueSyncEvent(
@@ -190,28 +163,103 @@ class SyncService extends ChangeNotifier {
         ),
       );
 
-      final drive = GoogleDriveClient(session.client);
+      final cloud = YandexDiskClient(session.client);
       final result = await _engine.run(
-        drive,
+        cloud,
+        providerId: providerId,
         onProgress: (msg) {
           _message = msg;
           notifyListeners();
         },
       );
+
+      var cloudUp = 0;
+      var cloudDown = 0;
+      var photosUp = 0;
+      var photosDown = 0;
+      final library = _library;
+      if (library != null && _settings.syncCloudPlaylist) {
+        final dirty =
+            _cloudDirty || await CloudPlaylistSync.isDirty(_db);
+        final cloudSync = CloudPlaylistSync(
+          db: _db,
+          paths: library.paths,
+        );
+        final byKey = <String, Track>{
+          for (final t in library.tracks) t.trackKey: t,
+        };
+        final cloudResult = await cloudSync.run(
+          cloud,
+          localDirty: dirty,
+          tracksByKey: byKey,
+          onProgress: (msg) {
+            _message = msg;
+            notifyListeners();
+          },
+        );
+        cloudUp = cloudResult.uploaded;
+        cloudDown = cloudResult.downloaded;
+        _cloudDirty = false;
+        if (cloudResult.downloaded > 0) {
+          await library.scanLibrary(newOnly: true);
+          final applied = await cloudSync.applyPendingMembership({
+            for (final t in library.tracks) t.trackKey: t,
+          });
+          if (applied || cloudResult.membershipChanged) {
+            await library.reload();
+          }
+        } else if (cloudResult.membershipChanged) {
+          await library.reload();
+        }
+        if (cloudResult.changed) {
+          _libraryNeedsReload = true;
+        }
+      } else {
+        _cloudDirty = false;
+      }
+
+      if (library != null && _settings.syncArtistPhotos) {
+        final photoSync = ArtistPhotosSync(
+          paths: library.paths,
+          settings: _settings,
+        );
+        final photoResult = await photoSync.run(
+          cloud,
+          onProgress: (msg) {
+            _message = msg;
+            notifyListeners();
+          },
+        );
+        photosUp = photoResult.uploaded;
+        photosDown = photoResult.downloaded;
+        if (photoResult.changed) {
+          _libraryNeedsReload = true;
+          library.notifyPhotosChanged();
+        }
+      }
+
       _lastSyncAt = DateTime.now();
       await _db.setSyncMeta(
         'last_sync_at',
         _lastSyncAt!.toUtc().toIso8601String(),
       );
-      _libraryNeedsReload =
-          result.applied > 0 || result.uploaded > 0 || result.countsMerged > 0;
+      _libraryNeedsReload = _libraryNeedsReload ||
+          result.applied > 0 ||
+          result.uploaded > 0 ||
+          result.countsMerged > 0;
+      final cloudPart = (cloudUp > 0 || cloudDown > 0)
+          ? ', облако ↑$cloudUp ↓$cloudDown'
+          : '';
+      final photosPart = (photosUp > 0 || photosDown > 0)
+          ? ', фото ↑$photosUp ↓$photosDown'
+          : '';
       _message =
           'Готово: ↑${result.uploaded} ↓${result.downloaded} '
           'применено ${result.applied}'
-          '${result.countsMerged > 0 ? ', счётчики +${result.countsMerged}' : ''}';
+          '${result.countsMerged > 0 ? ', счётчики +${result.countsMerged}' : ''}'
+          '$cloudPart$photosPart';
     } catch (e) {
       _message = 'Ошибка синка: $e';
-      // Don't rethrow — UI already shows message; avoids "hanging" feel after cancel.
     } finally {
       _busy = false;
       notifyListeners();
@@ -222,8 +270,8 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  /// Debounced background sync after local outbox changes.
   void _scheduleAutoSync() {
+    if (_shuttingDown) return;
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(_autoSyncDelay, () {
       unawaited(syncNow(interactive: false));

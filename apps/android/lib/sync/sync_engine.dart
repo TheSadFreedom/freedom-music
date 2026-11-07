@@ -4,7 +4,7 @@ import 'dart:convert';
 import '../data/database.dart';
 import '../data/track_key.dart';
 import '../services/settings_service.dart';
-import 'google_drive_client.dart';
+import 'cloud_sync_client.dart';
 import 'sync_event.dart';
 
 class SyncResult {
@@ -34,11 +34,16 @@ class SyncEngine {
   final AppDatabase _db;
   final SettingsService _settings;
 
-  static const _seenChunksKey = 'seen_chunks';
+  static const _seenChunksKeyPrefix = 'seen_chunks';
   static const _seededKey = 'local_seeded_v1';
   static const _playsSeededKey = 'plays_seeded_v1';
   static const _uploadBatchSize = 400;
   static const _driveTimeout = Duration(seconds: 90);
+
+  /// Cloud provider id — namespaces seen chunk ids.
+  String _providerId = 'yandex';
+
+  String get _seenChunksKey => '${_seenChunksKeyPrefix}_$_providerId';
 
   Set<String>? _localKeys;
   Map<String, String>? _byFullIdentity;
@@ -47,10 +52,12 @@ class SyncEngine {
   Map<String, String>? _artistByKey;
 
   Future<SyncResult> run(
-    GoogleDriveClient drive, {
+    CloudSyncClient drive, {
     SyncProgress? onProgress,
+    String providerId = 'yandex',
   }) async {
     void progress(String msg) => onProgress?.call(msg);
+    _providerId = providerId.trim().isEmpty ? 'yandex' : providerId.trim();
 
     // Library may have changed since last sync on this service instance.
     _localKeys = null;
@@ -62,22 +69,28 @@ class SyncEngine {
     final deviceId = await _db.getOrCreateDeviceId();
     progress('Подготовка локальных данных…');
     await _seedLocalIfNeeded(deviceId);
-    progress('Подготовка истории прослушиваний…');
-    await _seedPlaysIfNeeded(deviceId);
+    if (_settings.syncPlays) {
+      progress('Подготовка истории прослушиваний…');
+      await _seedPlaysIfNeeded(deviceId);
+    }
 
     final pending = await _db.pendingSyncEvents();
+    final uploadable = [
+      for (final e in pending)
+        if (_allowsType(e.type)) e,
+    ];
     var uploaded = 0;
-    if (pending.isNotEmpty) {
-      for (var i = 0; i < pending.length; i += _uploadBatchSize) {
-        final slice = pending.sublist(
+    if (uploadable.isNotEmpty) {
+      for (var i = 0; i < uploadable.length; i += _uploadBatchSize) {
+        final slice = uploadable.sublist(
           i,
-          (i + _uploadBatchSize).clamp(0, pending.length),
+          (i + _uploadBatchSize).clamp(0, uploadable.length),
         );
         final name =
-            '${GoogleDriveClient.eventsPrefix}${deviceId.substring(0, 8)}_'
+            '${CloudSyncClient.eventsPrefix}${deviceId.substring(0, 8)}_'
             '${DateTime.now().toUtc().millisecondsSinceEpoch}_$i.jsonl';
         progress(
-          'Выгрузка ${i + 1}–${i + slice.length} из ${pending.length}…',
+          'Выгрузка ${i + 1}–${i + slice.length} из ${uploadable.length}…',
         );
         final body = slice.map((e) => e.toJsonLine()).join('\n');
         await _timeout(
@@ -90,8 +103,10 @@ class SyncEngine {
       }
     }
 
-    progress('Выгрузка счётчиков прослушиваний…');
-    await _uploadPlayCountsSnapshot(drive, deviceId);
+    if (_settings.syncPlays) {
+      progress('Выгрузка счётчиков прослушиваний…');
+      await _uploadPlayCountsSnapshot(drive, deviceId);
+    }
 
     progress('Проверка облака…');
     final seen = await _seenChunks();
@@ -101,7 +116,6 @@ class SyncEngine {
     for (final file in chunks) {
       final name = file.name;
       final id = file.id;
-      if (name == null || id == null) continue;
       if (seen.contains(name)) continue;
       progress('Загрузка $name…');
       final text = await _timeout(drive.downloadText(id), 'download $name');
@@ -115,18 +129,22 @@ class SyncEngine {
       await _markChunkSeen(name);
     }
 
-    progress('Слияние счётчиков прослушиваний…');
-    final countsMerged = await _pullPlayCountsSnapshots(
-      drive,
-      progress: progress,
-    );
-    applied += countsMerged;
+    var countsMerged = 0;
+    if (_settings.syncPlays) {
+      progress('Слияние счётчиков прослушиваний…');
+      countsMerged = await _pullPlayCountsSnapshots(
+        drive,
+        progress: progress,
+      );
+      applied += countsMerged;
+    }
 
     progress('Обновление статуса…');
     await _timeout(
       drive.uploadMeta({
         'updatedAt': DateTime.now().toUtc().toIso8601String(),
         'deviceId': deviceId,
+        'provider': _providerId,
         'uploaded': uploaded,
         'downloaded': downloaded,
         'applied': applied,
@@ -152,51 +170,72 @@ class SyncEngine {
     );
   }
 
+  bool _allowsType(String type) {
+    switch (type) {
+      case SyncEvent.playRecorded:
+      case SyncEvent.playCountsMerge:
+        return _settings.syncPlays;
+      case SyncEvent.artistAlias:
+      case SyncEvent.producerAlias:
+        return _settings.syncAliases;
+      case SyncEvent.playlistUpsert:
+        return _settings.syncPlaylists;
+      case SyncEvent.settingsFlags:
+        return true;
+      default:
+        return true;
+    }
+  }
+
   Future<void> _seedLocalIfNeeded(String deviceId) async {
     final seeded = await _db.getSyncMeta(_seededKey);
     if (seeded == '1') return;
 
-    final playlists = await _db.getPlaylists();
     final events = <SyncEvent>[];
-    for (final pl in playlists) {
-      if (pl.isSystem) continue;
-      events.add(
-        await _db.buildPlaylistUpsertEvent(
-          playlistId: pl.id,
-          deviceId: deviceId,
-        ),
-      );
+    if (_settings.syncPlaylists) {
+      final playlists = await _db.getPlaylists();
+      for (final pl in playlists) {
+        if (pl.isSystem) continue;
+        events.add(
+          await _db.buildPlaylistUpsertEvent(
+            playlistId: pl.id,
+            deviceId: deviceId,
+          ),
+        );
+      }
     }
 
-    for (final row in await _db.getArtistAliases()) {
-      events.add(
-        SyncEvent(
-          id: 'alias_artist_${row.fromNorm}',
-          deviceId: deviceId,
-          at: DateTime.now().toUtc(),
-          type: SyncEvent.artistAlias,
-          payload: {
-            'fromDisplay': row.fromDisplay,
-            'toDisplay': row.toDisplay,
-            'updatedAt': DateTime.now().toUtc().toIso8601String(),
-          },
-        ),
-      );
-    }
-    for (final row in await _db.getProducerAliases()) {
-      events.add(
-        SyncEvent(
-          id: 'alias_producer_${row.fromNorm}',
-          deviceId: deviceId,
-          at: DateTime.now().toUtc(),
-          type: SyncEvent.producerAlias,
-          payload: {
-            'fromDisplay': row.fromDisplay,
-            'toDisplay': row.toDisplay,
-            'updatedAt': DateTime.now().toUtc().toIso8601String(),
-          },
-        ),
-      );
+    if (_settings.syncAliases) {
+      for (final row in await _db.getArtistAliases()) {
+        events.add(
+          SyncEvent(
+            id: 'alias_artist_${row.fromNorm}',
+            deviceId: deviceId,
+            at: DateTime.now().toUtc(),
+            type: SyncEvent.artistAlias,
+            payload: {
+              'fromDisplay': row.fromDisplay,
+              'toDisplay': row.toDisplay,
+              'updatedAt': DateTime.now().toUtc().toIso8601String(),
+            },
+          ),
+        );
+      }
+      for (final row in await _db.getProducerAliases()) {
+        events.add(
+          SyncEvent(
+            id: 'alias_producer_${row.fromNorm}',
+            deviceId: deviceId,
+            at: DateTime.now().toUtc(),
+            type: SyncEvent.producerAlias,
+            payload: {
+              'fromDisplay': row.fromDisplay,
+              'toDisplay': row.toDisplay,
+              'updatedAt': DateTime.now().toUtc().toIso8601String(),
+            },
+          ),
+        );
+      }
     }
 
     final flags = _settings.exportSettingsFlags();
@@ -249,7 +288,7 @@ class SyncEngine {
 
   /// Upsert absolute counts for this device. Pulled every sync on all devices.
   Future<void> _uploadPlayCountsSnapshot(
-    GoogleDriveClient drive,
+    CloudSyncClient drive,
     String deviceId,
   ) async {
     final rows = await _db.getPlayCountsWithIdentity();
@@ -276,7 +315,7 @@ class SyncEngine {
   }
 
   Future<int> _pullPlayCountsSnapshots(
-    GoogleDriveClient drive, {
+    CloudSyncClient drive, {
     SyncProgress? progress,
   }) async {
     final files = await _timeout(
@@ -289,8 +328,7 @@ class SyncEngine {
     for (final file in files) {
       final id = file.id;
       final name = file.name;
-      if (id == null) continue;
-      progress?.call('Счётчики: ${name ?? id}…');
+      progress?.call('Счётчики: $name…');
       final text = await _timeout(drive.downloadText(id), 'download $name');
       final decoded = jsonDecode(text);
       if (decoded is! Map) continue;
@@ -363,6 +401,13 @@ class SyncEngine {
     }
 
     for (final event in fresh) {
+      if (!_allowsType(event.type)) {
+        // Category disabled locally — consume without applying.
+        if (_isKnownEventType(event.type)) {
+          await _db.markSyncApplied(event.id);
+        }
+        continue;
+      }
       if (event.type == SyncEvent.playRecorded) {
         final playedAt = _parseInt(event.payload['playedAt']);
         final trackKey = _resolveTrackKey(event.payload);
@@ -562,7 +607,14 @@ class SyncEngine {
   }
 
   Future<Set<String>> _seenChunks() async {
-    final raw = await _db.getSyncMeta(_seenChunksKey);
+    var raw = await _db.getSyncMeta(_seenChunksKey);
+    // Migrate legacy unscoped key once.
+    if (raw == null || raw.isEmpty) {
+      raw = await _db.getSyncMeta('seen_chunks');
+      if (raw != null && raw.isNotEmpty) {
+        await _db.setSyncMeta(_seenChunksKey, raw);
+      }
+    }
     if (raw == null || raw.isEmpty) return {};
     try {
       final decoded = jsonDecode(raw);

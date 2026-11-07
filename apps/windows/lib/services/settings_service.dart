@@ -26,8 +26,13 @@ class SettingsService extends ChangeNotifier {
   static const _trackKeysRemigratedKey = 'track_keys_remigrated_v1';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
+  static const _artistPhotoUpdatedPrefix = 'artist_photo_updated_';
   static const _releaseCoverPrefix = 'release_cover_';
-
+  static const _syncPlaysKey = 'sync_plays';
+  static const _syncAliasesKey = 'sync_aliases';
+  static const _syncPlaylistsKey = 'sync_playlists';
+  static const _syncCloudPlaylistKey = 'sync_cloud_playlist';
+  static const _syncArtistPhotosKey = 'sync_artist_photos';
   static Future<SettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
     return SettingsService(prefs);
@@ -70,6 +75,46 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setAutoFillEmptyMetadata(bool value) async {
     await _prefs.setBool(_autoFillMetaKey, value);
+    notifyListeners();
+  }
+
+  /// Yandex sync: play history + count snapshots.
+  bool get syncPlays => _prefs.getBool(_syncPlaysKey) ?? true;
+
+  Future<void> setSyncPlays(bool value) async {
+    await _prefs.setBool(_syncPlaysKey, value);
+    notifyListeners();
+  }
+
+  /// Yandex sync: artist/producer card merges.
+  bool get syncAliases => _prefs.getBool(_syncAliasesKey) ?? true;
+
+  Future<void> setSyncAliases(bool value) async {
+    await _prefs.setBool(_syncAliasesKey, value);
+    notifyListeners();
+  }
+
+  /// Yandex sync: user playlists.
+  bool get syncPlaylists => _prefs.getBool(_syncPlaylistsKey) ?? true;
+
+  Future<void> setSyncPlaylists(bool value) async {
+    await _prefs.setBool(_syncPlaylistsKey, value);
+    notifyListeners();
+  }
+
+  /// Yandex sync + UI for system «Облако» playlist.
+  bool get syncCloudPlaylist => _prefs.getBool(_syncCloudPlaylistKey) ?? true;
+
+  Future<void> setSyncCloudPlaylist(bool value) async {
+    await _prefs.setBool(_syncCloudPlaylistKey, value);
+    notifyListeners();
+  }
+
+  /// Yandex sync: artist portrait files.
+  bool get syncArtistPhotos => _prefs.getBool(_syncArtistPhotosKey) ?? true;
+
+  Future<void> setSyncArtistPhotos(bool value) async {
+    await _prefs.setBool(_syncArtistPhotosKey, value);
     notifyListeners();
   }
 
@@ -169,6 +214,9 @@ class SettingsService extends ChangeNotifier {
   String _artistManualKey(String name) =>
       '$_artistPhotoManualPrefix${name.trim().toLowerCase()}';
 
+  String _artistUpdatedKey(String name) =>
+      '$_artistPhotoUpdatedPrefix${name.trim().toLowerCase()}';
+
   /// Custom artist photo path, if set.
   String? artistPhotoPath(String artistName) {
     final path = _prefs.getString(_artistKey(artistName));
@@ -180,21 +228,32 @@ class SettingsService extends ChangeNotifier {
   bool isArtistPhotoManual(String artistName) =>
       _prefs.getBool(_artistManualKey(artistName)) ?? false;
 
+  /// UTC ms when the local portrait was last set (for Yandex LWW).
+  int? artistPhotoUpdatedAtMs(String artistName) =>
+      _prefs.getInt(_artistUpdatedKey(artistName));
+
   Future<void> setArtistPhotoPath(
     String artistName,
     String? path, {
     bool? manual,
+    int? updatedAtMs,
   }) async {
     final key = _artistKey(artistName);
     final manualKey = _artistManualKey(artistName);
+    final updatedKey = _artistUpdatedKey(artistName);
     if (path == null || path.isEmpty) {
       await _prefs.remove(key);
       await _prefs.remove(manualKey);
+      await _prefs.remove(updatedKey);
     } else {
       await _prefs.setString(key, path);
       if (manual != null) {
         await _prefs.setBool(manualKey, manual);
       }
+      await _prefs.setInt(
+        updatedKey,
+        updatedAtMs ?? DateTime.now().toUtc().millisecondsSinceEpoch,
+      );
     }
     notifyListeners();
   }

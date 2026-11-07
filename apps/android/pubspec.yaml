@@ -1,7 +1,7 @@
 name: freedom_music
 description: Freedom Music for Android. Metadata is the source of truth.
 publish_to: 'none'
-version: 1.0.22+23
+version: 1.0.23+24
 
 environment:
   sdk: ^3.13.5
@@ -25,13 +25,9 @@ dependencies:
   file_picker: ^8.3.7
   archive: ^4.5.2
   audio_service: ^0.18.19
-  google_sign_in: ^7.2.0
-  googleapis: ^17.0.0
-  googleapis_auth: ^2.3.5
   http: ^1.6.0
   uuid: ^4.6.0
   url_launcher: ^6.3.3
-  extension_google_sign_in_as_googleapis_auth: ^3.0.0
 
 dev_dependencies:
   flutter_test:
@@ -42,3 +38,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/app_icon.ico
+    - assets/secrets/yandex_oauth.json

@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/library_service.dart';
-import '../services/player_service.dart';
+import '../services/mod_service.dart';
 import '../services/settings_service.dart';
 import '../sync/sync_service.dart';
 import '../theme/app_theme.dart';
@@ -15,7 +14,52 @@ import '../widgets/kept_icons.dart';
 import '../widgets/screen_title.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
-const _kContentMax = 920.0;
+const _kContentMax = 1040.0;
+const _kNavBreakpoint = 880.0;
+
+enum _SettingsCategory {
+  playback,
+  library,
+  cloud,
+  data,
+  activity,
+}
+
+extension on _SettingsCategory {
+  String get label => switch (this) {
+    _SettingsCategory.playback => 'Воспроизведение',
+    _SettingsCategory.library => 'Библиотека',
+    _SettingsCategory.cloud => 'Облако',
+    _SettingsCategory.data => 'Данные',
+    _SettingsCategory.activity => 'Ход работы',
+  };
+
+  String get blurb => switch (this) {
+    _SettingsCategory.playback =>
+      'Как плеер ведёт себя при старте и между треками.',
+    _SettingsCategory.library => 'Локальные пути и обновление каталога.',
+    _SettingsCategory.cloud =>
+      'Что уходит на Яндекс.Диск. Тумблеры только на этом устройстве.',
+    _SettingsCategory.data => 'Локальные счётчики прослушиваний.',
+    _SettingsCategory.activity => 'Прогресс скана и журнал заполнения.',
+  };
+
+  IconData get icon => switch (this) {
+    _SettingsCategory.playback => Icons.graphic_eq_rounded,
+    _SettingsCategory.library => Icons.folder_open_rounded,
+    _SettingsCategory.cloud => Icons.cloud_outlined,
+    _SettingsCategory.data => Icons.inventory_2_outlined,
+    _SettingsCategory.activity => Icons.timeline_rounded,
+  };
+
+  Color get accent => switch (this) {
+    _SettingsCategory.playback => _kYellow,
+    _SettingsCategory.library => AppTheme.mossBright,
+    _SettingsCategory.cloud => const Color(0xFFFFC46B),
+    _SettingsCategory.data => const Color(0xFFB8A4FF),
+    _SettingsCategory.activity => AppTheme.mossBright,
+  };
+}
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -28,22 +72,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _busyBackup = false;
   String? _backupMessage;
   String? _driveMessage;
-  String? _photosMessage;
+  _SettingsCategory _active = _SettingsCategory.playback;
 
-  Future<void> _refreshArtistPhotos(LibraryService library) async {
-    setState(() => _photosMessage = null);
-    try {
-      final n = await library.refreshArtistPhotos();
-      if (!mounted) return;
-      setState(() {
-        _photosMessage = n == 0
-            ? 'Новых фото не найдено (ручные не перезаписываются).'
-            : 'Обновлено фото: $n.';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _photosMessage = 'Ошибка: $e');
-    }
+  void _select(_SettingsCategory category) {
+    if (_active == category) return;
+    setState(() => _active = category);
   }
 
   Future<void> _syncDrive(LibraryService library, SyncService sync) async {
@@ -66,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _signInDrive(SyncService sync) async {
     setState(() => _driveMessage = null);
     try {
-      await sync.signIn();
+      await sync.signIn(promptYandexCode: _promptYandexCode);
       if (!mounted) return;
       setState(() => _driveMessage = sync.message);
     } catch (_) {
@@ -75,12 +108,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<String?> _promptYandexCode() async {
+    if (!mounted) return null;
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.inkLift,
+          title: Text(
+            'Код Яндекс',
+            style: GoogleFonts.syne(
+              color: AppTheme.paper,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'В браузере откроется страница Яндекса. Скопируйте код подтверждения и вставьте сюда.',
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  style: GoogleFonts.figtree(color: AppTheme.paper),
+                  decoration: InputDecoration(
+                    hintText: 'Код подтверждения',
+                    hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+                    filled: true,
+                    fillColor: AppTheme.ink.withValues(alpha: 0.35),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(
+                'Отмена',
+                style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              style: TextButton.styleFrom(foregroundColor: _kYellow),
+              child: Text(
+                'Войти',
+                style: GoogleFonts.figtree(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.dispose();
+      });
+    }
+  }
+
   Future<void> _signOutDrive(SyncService sync) async {
     try {
       await sync.signOut();
     } catch (_) {}
     if (!mounted) return;
-    setState(() => _driveMessage = sync.message ?? 'Вы вышли из Google');
+    setState(() => _driveMessage = sync.message ?? 'Вы вышли из облака');
   }
 
   Future<void> _clearPlayCounts(LibraryService library) async {
@@ -145,113 +254,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _export(LibraryService library) async {
-    final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Экспорт данных Freedom Music',
-      fileName: 'freedom_music_backup_$stamp.zip',
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
-    );
-    if (path == null) return;
-
-    setState(() {
-      _busyBackup = true;
-      _backupMessage = null;
-    });
-    try {
-      final dest = path.toLowerCase().endsWith('.zip') ? path : '$path.zip';
-      final result = await library.exportAppData(dest);
-      if (!mounted) return;
-      setState(() => _backupMessage = result.message);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _backupMessage = 'Ошибка экспорта: $e');
-    } finally {
-      if (mounted) setState(() => _busyBackup = false);
-    }
-  }
-
-  Future<void> _import(LibraryService library) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.inkLift,
-        title: Text(
-          'Импорт данных',
-          style: GoogleFonts.syne(
-            color: AppTheme.paper,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: Text(
-          'Текущие плейлисты, прослушивания, фото артистов, '
-          'обложки плейлистов и снимки чарта будут заменены данными из файла. '
-          'Метаданные треков и файлы music не изменятся.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted, height: 1.45),
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              'Отмена',
-              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-            ),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Импортировать',
-              style: GoogleFonts.figtree(
-                color: _kYellow,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Импорт данных Freedom Music',
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
-      withData: false,
-    );
-    if (picked == null || picked.files.isEmpty) return;
-    final path = picked.files.first.path;
-    if (path == null) return;
-
-    setState(() {
-      _busyBackup = true;
-      _backupMessage = null;
-    });
-    try {
-      final result = await library.importAppData(path);
-      if (!mounted) return;
-      setState(() => _backupMessage = result.message);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _backupMessage = 'Ошибка импорта: $e');
-    } finally {
-      if (mounted) setState(() => _busyBackup = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Rebuild only on library / the few settings shown here — not on every
-    // playback-session persist from the player.
     final library = context.read<LibraryService>();
     final settings = context.read<SettingsService>();
     final sync = context.watch<SyncService>();
+    final mods = context.watch<ModService>();
     final scanOnStartup = context.select<SettingsService, bool>(
       (s) => s.scanOnStartup,
     );
@@ -267,9 +275,257 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context, _) {
         final progress = library.scanProgress;
         final scanning = library.scanning;
-        final photosBusy = library.artistPhotosRefreshing;
-        final photoProgress = library.artistPhotoProgress;
-        final busy = scanning || _busyBackup || photosBusy || sync.busy;
+        final busy = scanning || _busyBackup || sync.busy;
+        final showActivity = scanning ||
+            progress != null ||
+            library.jobLog.isNotEmpty ||
+            library.lastScanMessage != null;
+
+        final categories = [
+          _SettingsCategory.playback,
+          _SettingsCategory.library,
+          _SettingsCategory.cloud,
+          _SettingsCategory.data,
+          if (showActivity) _SettingsCategory.activity,
+        ];
+
+        final active = categories.contains(_active)
+            ? _active
+            : categories.first;
+
+        if (active != _active) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _active = active);
+          });
+        }
+
+        final panel = switch (active) {
+          _SettingsCategory.playback => _PanelShell(
+            category: active,
+            child: _Group(
+              children: [
+                _SettingSwitch(
+                  title: 'Сканировать при запуске',
+                  subtitle: 'Иначе скан только по кнопке.',
+                  value: scanOnStartup,
+                  onChanged: busy ? null : settings.setScanOnStartup,
+                ),
+                _SettingSwitch(
+                  title: 'Музыка при запуске',
+                  subtitle:
+                      'Последний трек. Если его не было — случайный поток.',
+                  value: playOnStartup,
+                  onChanged: settings.setPlayOnStartup,
+                ),
+                _CrossfadeSlider(
+                  value: crossfade,
+                  onChanged: settings.setCrossfadeSeconds,
+                ),
+              ],
+            ),
+          ),
+          _SettingsCategory.library => _PanelShell(
+            category: active,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _SubLabel('Пути'),
+                const SizedBox(height: 10),
+                _Group(
+                  children: [
+                    _PathRow(label: 'music', value: library.paths.musicDir),
+                    _PathRow(label: 'База', value: library.paths.databasePath),
+                    _PathRow(label: 'Моды', value: mods.discovery.modsDir),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const _SubLabel('Сканирование'),
+                const SizedBox(height: 10),
+                _Group(
+                  children: [
+                    _SettingAction(
+                      icon: const FolderOpenGlyph(),
+                      title: 'Сканировать папку music',
+                      description: 'Сканирует папку полностью.',
+                      onPressed: busy
+                          ? null
+                          : () => library.scanLibrary(force: true),
+                    ),
+                    _SettingAction(
+                      icon: const FiberNewGlyph(),
+                      title: 'Поиск новых',
+                      description:
+                          'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
+                      onPressed: busy
+                          ? null
+                          : () => library.scanLibrary(newOnly: true),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          _SettingsCategory.cloud => _PanelShell(
+            category: active,
+            trailing: _CloudBadge(signedIn: sync.isSignedIn),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Group(
+                  children: [
+                    _PathRow(
+                      label: 'Аккаунт',
+                      value: sync.isSignedIn
+                          ? (sync.email ?? 'вход выполнен')
+                          : 'не выполнен вход',
+                    ),
+                    if (!sync.isSignedIn)
+                      _SettingAction(
+                        icon: const UploadGlyph(),
+                        title: 'Войти через Яндекс',
+                        description:
+                            'Откроется браузер — вставьте код подтверждения в приложение.',
+                        onPressed: busy ? null : () => _signInDrive(sync),
+                      )
+                    else ...[
+                      _SettingAction(
+                        icon: const RestartGlyph(),
+                        title: 'Синхронизировать',
+                        description: sync.lastSyncAt == null
+                            ? 'Загрузить и скачать изменения.'
+                            : 'Последний синк: ${DateFormat('dd.MM.yyyy HH:mm').format(sync.lastSyncAt!.toLocal())}',
+                        onPressed: busy
+                            ? null
+                            : () => _syncDrive(library, sync),
+                      ),
+                      _SettingAction(
+                        icon: const DownloadGlyph(),
+                        title: 'Выйти',
+                        description:
+                            'Локальные данные останутся. Outbox не очищается.',
+                        onPressed: () => _signOutDrive(sync),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const _SubLabel('Категории синка'),
+                const SizedBox(height: 10),
+                _Group(
+                  children: [
+                    _SettingSwitch(
+                      title: 'Прослушивания',
+                      subtitle: 'История и счётчики прослушиваний.',
+                      value: context.select<SettingsService, bool>(
+                        (s) => s.syncPlays,
+                      ),
+                      onChanged: busy ? null : settings.setSyncPlays,
+                    ),
+                    _SettingSwitch(
+                      title: 'Объединённые карточки',
+                      subtitle: 'Слияния артистов и продюсеров.',
+                      value: context.select<SettingsService, bool>(
+                        (s) => s.syncAliases,
+                      ),
+                      onChanged: busy ? null : settings.setSyncAliases,
+                    ),
+                    _SettingSwitch(
+                      title: 'Плейлисты',
+                      subtitle: 'Ваши плейлисты (без системных).',
+                      value: context.select<SettingsService, bool>(
+                        (s) => s.syncPlaylists,
+                      ),
+                      onChanged: busy ? null : settings.setSyncPlaylists,
+                    ),
+                    _SettingSwitch(
+                      title: 'Плейлист «Облако»',
+                      subtitle:
+                          'До 100 треков на Диске. Выкл. — скрыть из списка.',
+                      value: context.select<SettingsService, bool>(
+                        (s) => s.syncCloudPlaylist,
+                      ),
+                      onChanged: busy
+                          ? null
+                          : (v) async {
+                              await settings.setSyncCloudPlaylist(v);
+                              await library.reload();
+                            },
+                    ),
+                    _SettingSwitch(
+                      title: 'Фотографии артистов',
+                      subtitle: 'Портреты на карточках артистов.',
+                      value: context.select<SettingsService, bool>(
+                        (s) => s.syncArtistPhotos,
+                      ),
+                      onChanged: busy ? null : settings.setSyncArtistPhotos,
+                    ),
+                  ],
+                ),
+                if (sync.busy) ...[
+                  const SizedBox(height: 14),
+                  const _InlineBusy(label: 'Синхронизация…'),
+                ] else if (_driveMessage != null) ...[
+                  const SizedBox(height: 14),
+                  _StatusNote(text: _driveMessage!),
+                ],
+              ],
+            ),
+          ),
+          _SettingsCategory.data => _PanelShell(
+            category: active,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Group(
+                  children: [
+                    _SettingAction(
+                      icon: const RestartGlyph(),
+                      title: 'Сбросить',
+                      description:
+                          'Обнулить прослушивания. Плейлисты останутся.',
+                      danger: true,
+                      onPressed: busy ? null : () => _clearPlayCounts(library),
+                    ),
+                  ],
+                ),
+                if (_busyBackup) ...[
+                  const SizedBox(height: 14),
+                  const _InlineBusy(label: 'Обработка…'),
+                ],
+                if (_backupMessage != null) ...[
+                  const SizedBox(height: 14),
+                  _StatusNote(text: _backupMessage!),
+                ],
+              ],
+            ),
+          ),
+          _SettingsCategory.activity => _PanelShell(
+            category: active,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (scanning || progress != null)
+                  _JobProgress(
+                    label: progress == null
+                        ? 'Подготовка…'
+                        : '${progress.processed} / ${progress.total}'
+                              '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
+                    value: progress?.ratio,
+                    onStop: scanning ? library.cancelScan : null,
+                  ),
+                if (library.jobLog.isNotEmpty) ...[
+                  if (scanning || progress != null) const SizedBox(height: 12),
+                  _JobLog(lines: library.jobLog),
+                ],
+                if (library.lastScanMessage != null) ...[
+                  const SizedBox(height: 14),
+                  _StatusNote(text: library.lastScanMessage!),
+                ],
+              ],
+            ),
+          ),
+        };
+
         return Stack(
           children: [
             const Positioned.fill(
@@ -278,399 +534,120 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 secondary: Color(0xFF24382F),
               ),
             ),
-            ListView(
-              padding: const EdgeInsets.only(bottom: 28),
-              children: [
-                const ScreenTitle(title: 'Настройки'),
-                Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: _kContentMax),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final sideBySide = constraints.maxWidth >= 680;
-                              final playback = _SectionCard(
-                                title: 'Воспроизведение',
-                                child: _Group(
-                                  children: [
-                                    _SettingSwitch(
-                                      title: 'Сканировать при запуске',
-                                      subtitle: 'Иначе скан только по кнопке.',
-                                      value: scanOnStartup,
-                                      onChanged: busy
-                                          ? null
-                                          : settings.setScanOnStartup,
-                                    ),
-                                    _SettingSwitch(
-                                      title: 'Музыка при запуске',
-                                      subtitle: 'Последний трек. Если его не было — случайный поток.',
-                                      value: playOnStartup,
-                                      onChanged: settings.setPlayOnStartup,
-                                    ),
-                                    _CrossfadeSlider(
-                                      value: crossfade,
-                                      onChanged: settings.setCrossfadeSeconds,
-                                    ),
-                                  ],
-                                ),
-                              );
-                              final folders = _SectionCard(
-                                title: 'Папки',
-                                child: _Group(
-                                  children: [
-                                    _PathRow(
-                                      label: 'music',
-                                      value: library.paths.musicDir,
-                                    ),
-                                    _PathRow(
-                                      label: 'База',
-                                      value: library.paths.databasePath,
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (!sideBySide) {
-                                return Column(
-                                  children: [
-                                    playback,
-                                    const SizedBox(height: 12),
-                                    folders,
-                                  ],
-                                );
-                              }
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: playback),
-                                  const SizedBox(width: 12),
-                                  Expanded(child: folders),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          _SectionCard(
-                            title: 'Сканирование',
-                            child: _Group(
-                              children: [
-                                _SettingAction(
-                                  icon: const FolderOpenGlyph(),
-                                  title: 'Сканировать папку music',
-                                  description: 'Сканирует папку полностью.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.scanLibrary(force: true),
-                                ),
-                                _SettingAction(
-                                  icon: const FiberNewGlyph(),
-                                  title: 'Поиск новых',
-                                  description: 'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
-                                  onPressed: busy
-                                      ? null
-                                      : () =>
-                                            library.scanLibrary(newOnly: true),
-                                ),
-                              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final sideNav = constraints.maxWidth >= _kNavBreakpoint;
+                final content = CustomScrollView(
+                  slivers: [
+                    const SliverToBoxAdapter(
+                      child: ScreenTitle(title: 'Настройки'),
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        sideNav ? 8 : 20,
+                        0,
+                        20,
+                        40,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: _kContentMax,
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          _SectionCard(
-                            title: 'Метаданные',
-                            child: _Group(
-                              children: [
-                                _SettingAction(
-                                  icon: const ManageSearchGlyph(),
-                                  title: 'Поиск пустых метаданных',
-                                  description: 'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста. «Метаданные готовы» не требует жанр.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.reportEmptyMetadata(),
-                                ),
-                                _SettingAction(
-                                  icon: const TravelExploreGlyph(),
-                                  title: 'Заполнить пустые метаданные',
-                                  description:
-                                      'Идёт по списку «Нехватает метаданных» и заполняет поля, обложку, продюсера и текст (Genius / iTunes / Deezer).',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillEmptyMetadata(),
-                                ),
-                                _SettingAction(
-                                  icon: const HeadphonesGlyph(),
-                                  title: 'Поиск метаданных продюсеров',
-                                  description:
-                                      'Идёт по списку «Нехватает Prod.» и записывает только продюсера.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillMissingProducers(),
-                                ),
-                                _SettingAction(
-                                  icon: const LyricsGlyph(),
-                                  title: 'Поиск текста',
-                                  description:
-                                      'Идёт по списку «Нехватает текста»; если текст уже есть, трек пропускается.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillMissingLyrics(),
-                                ),
-                                _SettingAction(
-                                  icon: const RestartGlyph(),
-                                  title: 'Повторный поиск текста',
-                                  description:
-                                      'Ищет текст для всех песен заново, даже если текст уже заполнен.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.refillAllLyrics(),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _SectionCard(
-                            title: 'Названия и фото',
-                            child: _Group(
-                              children: [
-                                _SettingAction(
-                                  icon: const EditGlyph(),
-                                  title: 'Фикс названий',
-                                  description: 'Убирает в конце названия feat. и prod by, в том числе в скобках.',
-                                  onPressed: busy
-                                      ? null
-                                      : () {
-                                          final player = context
-                                              .read<PlayerService>();
-                                          library.fixTitleCredits(
-                                            onUpdated: (updated, oldKey) {
-                                              player.syncTrack(
-                                                updated,
-                                                oldTrackKey: oldKey,
-                                              );
-                                            },
-                                          );
-                                        },
-                                ),
-                                _SettingAction(
-                                  icon: const FacePhotoGlyph(),
-                                  title: 'Поиск фотографий артистов',
-                                  description: 'Ищет фото артистов. Ручные фото не перезаписываются.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => _refreshArtistPhotos(library),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (scanning ||
-                              progress != null ||
-                              photoProgress != null ||
-                              library.jobLog.isNotEmpty ||
-                              _photosMessage != null ||
-                              library.lastScanMessage != null) ...[
-                            const SizedBox(height: 12),
-                            _SectionCard(
-                              title: 'Ход работы',
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  if (scanning || progress != null)
-                                    _JobProgress(
-                                      label: progress == null
-                                          ? 'Подготовка…'
-                                          : '${progress.processed} / ${progress.total}'
-                                                '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
-                                      value: progress?.ratio,
-                                      onStop: scanning
-                                          ? library.cancelScan
-                                          : null,
-                                    ),
-                                  if (photoProgress != null) ...[
-                                    if (scanning || progress != null)
-                                      const SizedBox(height: 8),
-                                    _JobProgress(
-                                      label:
-                                          '${photoProgress.done} / ${photoProgress.total}'
-                                          '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
-                                          '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
-                                      value: photoProgress.ratio,
-                                    ),
-                                  ],
-                                  if (library.jobLog.isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    _JobLog(lines: library.jobLog),
-                                  ],
-                                  if (_photosMessage != null) ...[
-                                    const SizedBox(height: 10),
-                                    _StatusNote(text: _photosMessage!),
-                                  ],
-                                  if (library.lastScanMessage != null) ...[
-                                    const SizedBox(height: 10),
-                                    _StatusNote(text: library.lastScanMessage!),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          _SectionCard(
-                            title: 'Google Drive',
-                            subtitle:
-                                'Плейлисты, прослушивания, объединения и флаги настроек. Без MP3 и фото.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _Group(
-                                  children: [
-                                    _PathRow(
-                                      label: 'Аккаунт',
-                                      value: sync.isSignedIn
-                                          ? (sync.email ?? 'вход выполнен')
-                                          : 'не выполнен вход',
-                                    ),
-                                    if (!sync.isSignedIn)
-                                      _SettingAction(
-                                        icon: const UploadGlyph(),
-                                        title: 'Войти через Google',
-                                        description:
-                                            'Доступ только к скрытой папке приложения в Drive. Нужен secrets/google_oauth.desktop.json.',
-                                        onPressed: busy
-                                            ? null
-                                            : () => _signInDrive(sync),
-                                      )
-                                    else ...[
-                                      _SettingAction(
-                                        icon: const RestartGlyph(),
-                                        title: 'Синхронизировать',
-                                        description: sync.lastSyncAt == null
-                                            ? 'Загрузить и скачать изменения.'
-                                            : 'Последний синк: ${DateFormat('dd.MM.yyyy HH:mm').format(sync.lastSyncAt!.toLocal())}',
-                                        onPressed: busy
-                                            ? null
-                                            : () => _syncDrive(library, sync),
+                            child: sideNav
+                                ? Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SizedBox(
+                                        width: 228,
+                                        child: _CategoryRail(
+                                          categories: categories,
+                                          active: active,
+                                          scanning: scanning,
+                                          cloudSignedIn: sync.isSignedIn,
+                                          onSelect: _select,
+                                        ),
                                       ),
-                                      _SettingAction(
-                                        icon: const DownloadGlyph(),
-                                        title: 'Выйти',
-                                        description:
-                                            'Локальные данные останутся. Outbox не очищается.',
-                                        onPressed: () => _signOutDrive(sync),
+                                      const SizedBox(width: 28),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            AnimatedSwitcher(
+                                              duration: const Duration(
+                                                milliseconds: 220,
+                                              ),
+                                              switchInCurve:
+                                                  Curves.easeOutCubic,
+                                              switchOutCurve:
+                                                  Curves.easeInCubic,
+                                              transitionBuilder:
+                                                  (child, animation) {
+                                                final slide = Tween<Offset>(
+                                                  begin: const Offset(
+                                                    0.02,
+                                                    0.01,
+                                                  ),
+                                                  end: Offset.zero,
+                                                ).animate(animation);
+                                                return FadeTransition(
+                                                  opacity: animation,
+                                                  child: SlideTransition(
+                                                    position: slide,
+                                                    child: child,
+                                                  ),
+                                                );
+                                              },
+                                              child: KeyedSubtree(
+                                                key: ValueKey(active),
+                                                child: panel,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 22),
+                                            const _FooterNote(),
+                                          ],
+                                        ),
                                       ),
                                     ],
-                                  ],
-                                ),
-                                if (sync.busy) ...[
-                                  const SizedBox(height: 10),
-                                  Row(
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
-                                      const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: _kYellow,
+                                      _CategoryChips(
+                                        categories: categories,
+                                        active: active,
+                                        scanning: scanning,
+                                        onSelect: _select,
+                                      ),
+                                      const SizedBox(height: 18),
+                                      AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        child: KeyedSubtree(
+                                          key: ValueKey(active),
+                                          child: panel,
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        sync.message ?? 'Синхронизация…',
-                                        style: GoogleFonts.figtree(
-                                          color: AppTheme.paperMuted,
-                                          fontSize: 12,
-                                        ),
-                                      ),
+                                      const SizedBox(height: 22),
+                                      const _FooterNote(),
                                     ],
                                   ),
-                                ] else if (_driveMessage != null) ...[
-                                  const SizedBox(height: 10),
-                                  _StatusNote(text: _driveMessage!),
-                                ],
-                              ],
-                            ),
                           ),
-                          const SizedBox(height: 12),
-                          _SectionCard(
-                            title: 'Данные',
-                            subtitle: 'Плейлисты, фото, история, объединения и выбранные обложки релизов. MP3 не входят.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _Group(
-                                  children: [
-                                    _SettingAction(
-                                      icon: const UploadGlyph(),
-                                      title: 'Экспорт',
-                                      description: 'Архив плейлистов, фото, истории, объединений и обложек релизов.',
-                                      onPressed: busy
-                                          ? null
-                                          : () => _export(library),
-                                    ),
-                                    _SettingAction(
-                                      icon: const DownloadGlyph(),
-                                      title: 'Импорт',
-                                      description: 'Заменит данные приложения из архива.',
-                                      onPressed: busy
-                                          ? null
-                                          : () => _import(library),
-                                    ),
-                                    _SettingAction(
-                                      icon: const RestartGlyph(),
-                                      title: 'Сбросить',
-                                      description: 'Обнулить прослушивания. Плейлисты останутся.',
-                                      danger: true,
-                                      onPressed: busy
-                                          ? null
-                                          : () => _clearPlayCounts(library),
-                                    ),
-                                  ],
-                                ),
-                                if (_busyBackup) ...[
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: _kYellow,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Обработка архива…',
-                                        style: GoogleFonts.figtree(
-                                          color: AppTheme.paperMuted,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                if (_backupMessage != null) ...[
-                                  const SizedBox(height: 10),
-                                  _StatusNote(text: _backupMessage!),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            'Локальный плеер. Метаданные файла — источник правды о треке.',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.figtree(
-                              color: AppTheme.paperMuted.withValues(alpha: 0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+
+                return content;
+              },
             ),
           ],
         );
@@ -679,51 +656,479 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.child, this.subtitle});
+class _PanelShell extends StatelessWidget {
+  const _PanelShell({
+    required this.category,
+    required this.child,
+    this.trailing,
+  });
 
-  final String title;
-  final String? subtitle;
+  final _SettingsCategory category;
   final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = category.accent;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.06)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(AppTheme.inkLift, accent, 0.12)!
+                .withValues(alpha: 0.72),
+            AppTheme.inkLift.withValues(alpha: 0.48),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: accent.withValues(alpha: 0.3)),
+                  ),
+                  child: Icon(category.icon, color: accent, size: 23),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category.label,
+                        style: GoogleFonts.syne(
+                          color: AppTheme.paper,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 22,
+                          letterSpacing: -0.5,
+                          height: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        category.blurb,
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paperMuted,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 12),
+                  trailing!,
+                ],
+              ],
+            ),
+            const SizedBox(height: 18),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CloudBadge extends StatelessWidget {
+  const _CloudBadge({required this.signedIn});
+
+  final bool signedIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = signedIn ? AppTheme.mossBright : AppTheme.paperMuted;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              signedIn ? 'онлайн' : 'офлайн',
+              style: GoogleFonts.figtree(
+                color: color,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryRail extends StatelessWidget {
+  const _CategoryRail({
+    required this.categories,
+    required this.active,
+    required this.scanning,
+    required this.cloudSignedIn,
+    required this.onSelect,
+  });
+
+  final List<_SettingsCategory> categories;
+  final _SettingsCategory active;
+  final bool scanning;
+  final bool cloudSignedIn;
+  final ValueChanged<_SettingsCategory> onSelect;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppTheme.inkLift.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(18),
+        color: AppTheme.ink.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppTheme.paper.withValues(alpha: 0.06)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        padding: const EdgeInsets.fromLTRB(10, 16, 10, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              title,
-              style: GoogleFonts.syne(
-                color: AppTheme.paper,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                letterSpacing: -0.3,
-              ),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 2),
-              Text(
-                subtitle!,
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paperMuted.withValues(alpha: 0.9),
-                  fontSize: 12,
-                  height: 1.3,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
+              child: Text(
+                'Разделы',
+                style: GoogleFonts.syne(
+                  color: AppTheme.paperMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.1,
                 ),
               ),
+            ),
+            for (final category in categories) ...[
+              _RailItem(
+                category: category,
+                selected: category == active,
+                badge: category == _SettingsCategory.activity && scanning
+                    ? _RailDot(color: _kYellow)
+                    : category == _SettingsCategory.cloud
+                        ? _RailDot(
+                            color: cloudSignedIn
+                                ? AppTheme.mossBright
+                                : AppTheme.paperMuted.withValues(alpha: 0.55),
+                          )
+                        : null,
+                onTap: () => onSelect(category),
+              ),
+              if (category != categories.last) const SizedBox(height: 4),
             ],
-            const SizedBox(height: 10),
-            child,
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RailDot extends StatelessWidget {
+  const _RailDot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _RailItem extends StatefulWidget {
+  const _RailItem({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    this.badge,
+  });
+
+  final _SettingsCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget? badge;
+
+  @override
+  State<_RailItem> createState() => _RailItemState();
+}
+
+class _RailItemState extends State<_RailItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = widget.category.accent;
+    final selected = widget.selected;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.fromLTRB(8, 10, 10, 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.14)
+                : _hovered
+                    ? AppTheme.paper.withValues(alpha: 0.04)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 3,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: selected ? accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: selected ? 0.22 : 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  widget.category.icon,
+                  size: 16,
+                  color: selected ? accent : AppTheme.paperMuted,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.category.label,
+                  style: GoogleFonts.figtree(
+                    color: selected ? AppTheme.paper : AppTheme.paperMuted,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ),
+              if (widget.badge != null) widget.badge!,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryChips extends StatelessWidget {
+  const _CategoryChips({
+    required this.categories,
+    required this.active,
+    required this.scanning,
+    required this.onSelect,
+  });
+
+  final List<_SettingsCategory> categories;
+  final _SettingsCategory active;
+  final bool scanning;
+  final ValueChanged<_SettingsCategory> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < categories.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _ChipItem(
+              category: categories[i],
+              selected: categories[i] == active,
+              live: categories[i] == _SettingsCategory.activity && scanning,
+              onTap: () => onSelect(categories[i]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ChipItem extends StatelessWidget {
+  const _ChipItem({
+    required this.category,
+    required this.selected,
+    required this.live,
+    required this.onTap,
+  });
+
+  final _SettingsCategory category;
+  final bool selected;
+  final bool live;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = category.accent;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        mouseCursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.16)
+                : AppTheme.ink.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.38)
+                  : AppTheme.paper.withValues(alpha: 0.07),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                category.icon,
+                size: 15,
+                color: selected ? accent : AppTheme.paperMuted,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                category.label,
+                style: GoogleFonts.figtree(
+                  color: selected ? AppTheme.paper : AppTheme.paperMuted,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+              if (live) ...[
+                const SizedBox(width: 8),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: _kYellow,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubLabel extends StatelessWidget {
+  const _SubLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: GoogleFonts.figtree(
+        color: AppTheme.paperMuted.withValues(alpha: 0.9),
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 1.0,
+      ),
+    );
+  }
+}
+
+class _FooterNote extends StatelessWidget {
+  const _FooterNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Локальный плеер. Метаданные файла — источник правды о треке.',
+      textAlign: TextAlign.center,
+      style: GoogleFonts.figtree(
+        color: AppTheme.paperMuted.withValues(alpha: 0.75),
+        fontSize: 12,
+      ),
+    );
+  }
+}
+
+class _InlineBusy extends StatelessWidget {
+  const _InlineBusy({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: _kYellow,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: GoogleFonts.figtree(
+            color: AppTheme.paperMuted,
+            fontSize: 12,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -737,11 +1142,12 @@ class _Group extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppTheme.ink.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.ink.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.045)),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
             for (var i = 0; i < children.length; i++) ...[
@@ -749,7 +1155,9 @@ class _Group extends StatelessWidget {
                 Divider(
                   height: 1,
                   thickness: 1,
-                  color: AppTheme.paper.withValues(alpha: 0.06),
+                  indent: 14,
+                  endIndent: 14,
+                  color: AppTheme.paper.withValues(alpha: 0.055),
                 ),
               children[i],
             ],
@@ -769,17 +1177,17 @@ class _PathRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      padding: const EdgeInsets.fromLTRB(14, 11, 6, 11),
       child: Row(
         children: [
           SizedBox(
-            width: 52,
+            width: 62,
             child: Text(
               label,
               style: GoogleFonts.figtree(
                 color: AppTheme.paperMuted,
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -835,7 +1243,7 @@ class _CrossfadeSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = value <= 0 ? 'выкл' : '$value с';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -851,12 +1259,24 @@ class _CrossfadeSlider extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                label,
-                style: GoogleFonts.figtree(
-                  color: _kYellow,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: _kYellow.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  child: Text(
+                    label,
+                    style: GoogleFonts.figtree(
+                      color: _kYellow,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -902,7 +1322,7 @@ class _SettingSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
       child: Row(
         children: [
           Expanded(
@@ -917,13 +1337,13 @@ class _SettingSwitch extends StatelessWidget {
                     fontSize: 13.5,
                   ),
                 ),
-                const SizedBox(height: 1),
+                const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: GoogleFonts.figtree(
                     color: AppTheme.paperMuted,
-                    fontSize: 11.5,
-                    height: 1.25,
+                    fontSize: 12,
+                    height: 1.3,
                   ),
                 ),
               ],
@@ -947,7 +1367,7 @@ class _SettingSwitch extends StatelessWidget {
   }
 }
 
-class _SettingAction extends StatelessWidget {
+class _SettingAction extends StatefulWidget {
   const _SettingAction({
     required this.icon,
     required this.title,
@@ -963,42 +1383,50 @@ class _SettingAction extends StatelessWidget {
   final bool danger;
 
   @override
+  State<_SettingAction> createState() => _SettingActionState();
+}
+
+class _SettingActionState extends State<_SettingAction> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    final accent = danger ? const Color(0xFFFF8D7A) : AppTheme.lime;
+    final enabled = widget.onPressed != null;
+    final accent = widget.danger ? const Color(0xFFFF8D7A) : AppTheme.lime;
     final titleColor = enabled
         ? AppTheme.paper
         : AppTheme.paper.withValues(alpha: 0.4);
     final bodyColor = enabled
         ? AppTheme.paperMuted
         : AppTheme.paperMuted.withValues(alpha: 0.45);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        mouseCursor: enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        hoverColor: accent.withValues(alpha: 0.07),
-        splashColor: accent.withValues(alpha: 0.12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 11, 14, 11),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          color: _hovered && enabled
+              ? accent.withValues(alpha: 0.06)
+              : Colors.transparent,
+          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 36,
+                height: 36,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: accent.withValues(alpha: enabled ? 0.14 : 0.07),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Opacity(
                   opacity: enabled ? 1 : 0.4,
                   child: IconTheme(
                     data: IconThemeData(color: accent, size: 18),
-                    child: icon,
+                    child: widget.icon,
                   ),
                 ),
               ),
@@ -1008,7 +1436,7 @@ class _SettingAction extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      widget.title,
                       style: GoogleFonts.figtree(
                         color: titleColor,
                         fontWeight: FontWeight.w700,
@@ -1018,7 +1446,7 @@ class _SettingAction extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      description,
+                      widget.description,
                       style: GoogleFonts.figtree(
                         color: bodyColor,
                         fontSize: 12.5,
@@ -1028,6 +1456,17 @@ class _SettingAction extends StatelessWidget {
                   ],
                 ),
               ),
+              if (enabled)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 8),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: AppTheme.paperMuted.withValues(
+                      alpha: _hovered ? 0.85 : 0.45,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1053,8 +1492,7 @@ class _JobLogState extends State<_JobLog> {
   void didUpdateWidget(covariant _JobLog oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.lines.length == oldWidget.lines.length) return;
-    final stick =
-        !_scroll.hasClients ||
+    final stick = !_scroll.hasClients ||
         _scroll.position.maxScrollExtent - _scroll.offset < 64;
     if (!stick) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1085,9 +1523,9 @@ class _JobLogState extends State<_JobLog> {
     final failed = widget.lines.length - written;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppTheme.ink.withValues(alpha: 0.55),
+        color: AppTheme.ink.withValues(alpha: 0.46),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.06)),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.045)),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
@@ -1291,8 +1729,9 @@ class _JobProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppTheme.ink.withValues(alpha: 0.35),
+        color: AppTheme.ink.withValues(alpha: 0.46),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.045)),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
@@ -1327,7 +1766,7 @@ class _JobProgress extends StatelessWidget {
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       textStyle: GoogleFonts.figtree(
                         fontWeight: FontWeight.w800,
@@ -1340,7 +1779,7 @@ class _JobProgress extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
                 value: value,
                 minHeight: 6,
@@ -1364,12 +1803,12 @@ class _StatusNote extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppTheme.moss.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.mossBright.withValues(alpha: 0.25)),
+        color: AppTheme.moss.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.mossBright.withValues(alpha: 0.22)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Text(
           text,
           style: GoogleFonts.figtree(

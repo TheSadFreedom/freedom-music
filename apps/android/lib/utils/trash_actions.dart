@@ -436,7 +436,5 @@ Future<void> emptyTrash(BuildContext context, {required int count}) async {
   final library = context.read<LibraryService>();
   final player = context.read<PlayerService>();
   final keys = await library.emptyTrash();
-  for (final key in keys) {
-    await player.removeTrackFromQueue(key);
-  }
+  await player.removeTracksFromQueue(keys);
 }

@@ -1,7 +1,7 @@
 name: freedom_music
 description: Local MP3 player for Windows. Metadata is the source of truth.
 publish_to: 'none'
-version: 1.0.22+23
+version: 1.0.23+24
 
 environment:
   sdk: ^3.13.5
@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  fm_mod_protocol:
+    path: ../../packages/fm_mod_protocol
   cupertino_icons: ^1.0.8
   media_kit: ^1.2.6
   media_kit_libs_audio: ^1.0.7
@@ -32,8 +34,6 @@ dependencies:
   ffi: ^2.2.0
   win32: ^5.15.0
   pasteboard: ^0.6.0
-  googleapis: ^17.0.0
-  googleapis_auth: ^2.3.5
   http: ^1.6.0
   uuid: ^4.6.0
   url_launcher: ^6.3.3

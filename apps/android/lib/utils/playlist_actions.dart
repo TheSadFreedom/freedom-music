@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../models/playlist.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
@@ -61,18 +62,21 @@ class _AddToPlaylistBodyState extends State<_AddToPlaylistBody> {
     setState(() => _busy.add(playlistId));
     final library = context.read<LibraryService>();
     final name = library.playlistById(playlistId)?.name ?? 'плейлист';
-    final added =
+    final result =
         await library.addToPlaylist(playlistId, widget.track.trackKey);
     if (!mounted) return;
     setState(() {
       _busy.remove(playlistId);
-      if (added) _containing.add(playlistId);
+      if (result == LibraryService.addOk) _containing.add(playlistId);
     });
-    _toast(
-      added
-          ? '«${widget.track.displayTitle}» добавлен в «$name»'
-          : 'Уже есть в «$name»',
-    );
+    _toast(switch (result) {
+      LibraryService.addOk =>
+        '«${widget.track.displayTitle}» добавлен в «$name»',
+      LibraryService.addAlready => 'Уже есть в «$name»',
+      LibraryService.addLimit =>
+        'В Облаке максимум ${Playlist.cloudTrackLimit} треков',
+      _ => 'Не удалось добавить в «$name»',
+    });
   }
 
   Future<void> _createAndAdd() async {
@@ -80,17 +84,20 @@ class _AddToPlaylistBodyState extends State<_AddToPlaylistBody> {
     if (name == null || !mounted) return;
     final library = context.read<LibraryService>();
     final playlistId = await library.createPlaylist(name);
-    final added =
+    final result =
         await library.addToPlaylist(playlistId, widget.track.trackKey);
     if (!mounted) return;
     setState(() {
-      if (added) _containing.add(playlistId);
+      if (result == LibraryService.addOk) _containing.add(playlistId);
     });
-    _toast(
-      added
-          ? '«${widget.track.displayTitle}» добавлен в «$name»'
-          : 'Уже есть в «$name»',
-    );
+    _toast(switch (result) {
+      LibraryService.addOk =>
+        '«${widget.track.displayTitle}» добавлен в «$name»',
+      LibraryService.addAlready => 'Уже есть в «$name»',
+      LibraryService.addLimit =>
+        'В Облаке максимум ${Playlist.cloudTrackLimit} треков',
+      _ => 'Не удалось добавить в «$name»',
+    });
   }
 
   void _toast(String message) {
@@ -111,12 +118,26 @@ class _AddToPlaylistBodyState extends State<_AddToPlaylistBody> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
+    final cloud = library.cloudPlaylist;
     final lists = library.playlists.where((p) => !p.isSystem).toList();
 
     return ListView(
       shrinkWrap: true,
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
       children: [
+        if (cloud != null)
+          SheetRow(
+            title: cloud.name,
+            subtitle: _containing.contains(cloud.id)
+                ? 'Уже добавлен · ${cloud.trackCount}/${Playlist.cloudTrackLimit}'
+                : '${cloud.trackCount}/${Playlist.cloudTrackLimit} · Яндекс.Диск',
+            leadingIcon: Icons.cloud_outlined,
+            leadingAccent: true,
+            selected: _containing.contains(cloud.id),
+            onTap: _containing.contains(cloud.id) || _busy.contains(cloud.id)
+                ? null
+                : () => _addTo(cloud.id),
+          ),
         SheetRow(
           title: 'Новый плейлист',
           subtitle: 'Создать и добавить трек',

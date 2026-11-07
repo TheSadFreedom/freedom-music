@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../models/playlist.dart';
 import '../models/track.dart';
 import '../navigation/app_navigator.dart';
 import '../services/library_service.dart';
@@ -16,6 +17,7 @@ Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
   dismissLyrics(context);
   context = navigatorContext(context);
   final library = context.read<LibraryService>();
+  final cloud = library.cloudPlaylist;
   final lists = library.playlists.where((p) => !p.isSystem).toList();
 
   final choice = await showAppBottomSheet<Object>(
@@ -23,6 +25,15 @@ Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
     title: 'В плейлист',
     scrollControlled: true,
     buildChildren: (sheetCtx) => [
+      if (cloud != null)
+        SheetRow(
+          title: cloud.name,
+          subtitle:
+              '${cloud.trackCount}/${Playlist.cloudTrackLimit} · Яндекс.Диск',
+          leadingIcon: Icons.cloud_outlined,
+          leadingAccent: true,
+          onTap: () => Navigator.pop(sheetCtx, cloud.id),
+        ),
       SheetRow(
         title: 'Новый плейлист',
         subtitle: 'Создать и добавить трек',
@@ -65,14 +76,20 @@ Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
     playlistName = library.playlistById(playlistId)?.name ?? 'плейлист';
   }
 
-  final added = await library.addToPlaylist(playlistId, track.trackKey);
+  final result = await library.addToPlaylist(playlistId, track.trackKey);
   if (!context.mounted) return;
+  final text = switch (result) {
+    LibraryService.addOk =>
+      '«${track.displayTitle}» добавлен в «$playlistName»',
+    LibraryService.addAlready => 'Уже есть в «$playlistName»',
+    LibraryService.addLimit =>
+      'В Облаке максимум ${Playlist.cloudTrackLimit} треков',
+    _ => 'Не удалось добавить в «$playlistName»',
+  };
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(
-        added
-            ? '«${track.displayTitle}» добавлен в «$playlistName»'
-            : 'Уже есть в «$playlistName»',
+        text,
         style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
       ),
       behavior: SnackBarBehavior.floating,

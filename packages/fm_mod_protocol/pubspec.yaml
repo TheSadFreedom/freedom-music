@@ -1,0 +1,10 @@
+name: fm_mod_protocol
+description: JSON-RPC protocol between Freedom Music player and sidecar mods.
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  meta: ^1.16.0

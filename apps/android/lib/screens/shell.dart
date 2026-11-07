@@ -8,10 +8,10 @@ import '../utils/breakpoints.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/player_expansion.dart';
-import 'browser_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'playlists_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -61,14 +61,14 @@ class _AppShellState extends State<AppShell> {
       label: 'Чарты',
     ),
     _NavItem(
+      icon: Icons.queue_music_outlined,
+      selectedIcon: Icons.queue_music,
+      label: 'Плейлисты',
+    ),
+    _NavItem(
       icon: Icons.library_music_outlined,
       selectedIcon: Icons.library_music,
       label: 'Библиотека',
-    ),
-    _NavItem(
-      icon: Icons.travel_explore_outlined,
-      selectedIcon: Icons.travel_explore,
-      label: 'Браузер',
     ),
   ];
 
@@ -76,8 +76,8 @@ class _AppShellState extends State<AppShell> {
     final page = switch (index) {
       0 => HomeScreen(key: _homeKey),
       1 => const ChartScreen(),
-      2 => const LibraryScreen(),
-      _ => const BrowserScreen(),
+      2 => const PlaylistsScreen(),
+      _ => const LibraryScreen(),
     };
 
     return Stack(
@@ -87,13 +87,13 @@ class _AppShellState extends State<AppShell> {
           AmbientBackdrop(
             accent: switch (index) {
               1 => const Color(0xFF8B6B3D),
-              2 => const Color(0xFF3D6B8B),
-              _ => const Color(0xFF3D5A8B),
+              2 => const Color(0xFF5A3A6E),
+              _ => const Color(0xFF3D6B8B),
             },
             secondary: switch (index) {
               1 => const Color(0xFF5A3A2A),
-              2 => const Color(0xFF2A4A5C),
-              _ => const Color(0xFF2A3A5C),
+              2 => const Color(0xFF3D2A5C),
+              _ => const Color(0xFF2A4A5C),
             },
           ),
         page,

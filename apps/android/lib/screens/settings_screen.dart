@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/library_service.dart';
-import '../services/player_service.dart';
 import '../services/settings_service.dart';
 import '../services/storage_access.dart';
 import '../sync/sync_service.dart';
@@ -30,7 +29,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _busyBackup = false;
   String? _backupMessage;
   String? _driveMessage;
-  String? _photosMessage;
   late final TabController _tabs;
 
   @override
@@ -77,22 +75,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Future<void> _refreshArtistPhotos(LibraryService library) async {
-    setState(() => _photosMessage = null);
-    try {
-      final n = await library.refreshArtistPhotos();
-      if (!mounted) return;
-      setState(() {
-        _photosMessage = n == 0
-            ? 'Новых фото не найдено (ручные не перезаписываются).'
-            : 'Обновлено фото: $n.';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _photosMessage = 'Ошибка: $e');
-    }
-  }
-
   Future<void> _syncDrive(LibraryService library, SyncService sync) async {
     setState(() => _driveMessage = null);
     try {
@@ -113,71 +95,85 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<void> _signInDrive(SyncService sync) async {
     setState(() => _driveMessage = null);
     try {
-      await sync.signIn();
+      await sync.signIn(promptYandexCode: _promptYandexCode);
       if (!mounted) return;
       setState(() => _driveMessage = sync.message);
-      if (sync.needsDriveConsent) {
-        await _grantDriveAccess(sync);
-      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _driveMessage = sync.message ?? 'Ошибка входа');
     }
   }
 
-  Future<void> _grantDriveAccess(SyncService sync) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.inkLift,
-        title: Text(
-          'Доступ к Google Drive',
-          style: GoogleFonts.syne(
-            color: AppTheme.paper,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: Text(
-          'Нужно отдельное разрешение на скрытую папку приложения '
-          '(drive.appdata). MP3 и фото не синхронизируются.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted, height: 1.45),
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              'Позже',
-              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+  Future<String?> _promptYandexCode() async {
+    if (!mounted) return null;
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.inkLift,
+          title: Text(
+            'Код Яндекс',
+            style: GoogleFonts.syne(
+              color: AppTheme.paper,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Разрешить',
-              style: GoogleFonts.figtree(
-                color: _kYellow,
-                fontWeight: FontWeight.w800,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'В браузере откроется страница Яндекса. Скопируйте код подтверждения и вставьте сюда.',
+                style: GoogleFonts.figtree(
+                  color: AppTheme.paperMuted,
+                  fontSize: 13,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: GoogleFonts.figtree(color: AppTheme.paper),
+                decoration: InputDecoration(
+                  hintText: 'Код подтверждения',
+                  hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+                  filled: true,
+                  fillColor: AppTheme.ink.withValues(alpha: 0.35),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(
+                'Отмена',
+                style: GoogleFonts.figtree(color: AppTheme.paperMuted),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _driveMessage = null);
-    try {
-      await sync.grantDriveAccess();
-      if (!mounted) return;
-      setState(() => _driveMessage = sync.message);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _driveMessage = sync.message ?? 'Ошибка доступа к Drive');
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              style: TextButton.styleFrom(foregroundColor: _kYellow),
+              child: Text(
+                'Войти',
+                style: GoogleFonts.figtree(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.dispose();
+      });
     }
   }
 
@@ -249,106 +245,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  Future<void> _export(LibraryService library) async {
-    final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Экспорт данных Freedom Music',
-      fileName: 'freedom_music_backup_$stamp.zip',
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
-    );
-    if (path == null) return;
-
-    setState(() {
-      _busyBackup = true;
-      _backupMessage = null;
-    });
-    try {
-      final dest = path.toLowerCase().endsWith('.zip') ? path : '$path.zip';
-      final result = await library.exportAppData(dest);
-      if (!mounted) return;
-      setState(() => _backupMessage = result.message);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _backupMessage = 'Ошибка экспорта: $e');
-    } finally {
-      if (mounted) setState(() => _busyBackup = false);
-    }
-  }
-
-  Future<void> _import(LibraryService library) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.inkLift,
-        title: Text(
-          'Импорт данных',
-          style: GoogleFonts.syne(
-            color: AppTheme.paper,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: Text(
-          'Текущие плейлисты, прослушивания, фото артистов, '
-          'обложки плейлистов и снимки чарта будут заменены данными из файла. '
-          'Метаданные треков и файлы music не изменятся.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted, height: 1.45),
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              'Отмена',
-              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-            ),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              enabledMouseCursor: SystemMouseCursors.click,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Импортировать',
-              style: GoogleFonts.figtree(
-                color: _kYellow,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Импорт данных Freedom Music',
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
-      withData: false,
-    );
-    if (picked == null || picked.files.isEmpty) return;
-    final path = picked.files.first.path;
-    if (path == null) return;
-
-    setState(() {
-      _busyBackup = true;
-      _backupMessage = null;
-    });
-    try {
-      final result = await library.importAppData(path);
-      if (!mounted) return;
-      setState(() => _backupMessage = result.message);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _backupMessage = 'Ошибка импорта: $e');
-    } finally {
-      if (mounted) setState(() => _busyBackup = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Rebuild only on library / the few settings shown here — not on every
@@ -371,13 +267,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       builder: (context, _) {
         final progress = library.scanProgress;
         final scanning = library.scanning;
-        final photosBusy = library.artistPhotosRefreshing;
-        final photoProgress = library.artistPhotoProgress;
-        final busy = scanning || _busyBackup || photosBusy || sync.busy;
-        final libraryBusy = scanning ||
-            photosBusy ||
-            progress != null ||
-            photoProgress != null;
+        final busy = scanning || _busyBackup || sync.busy;
+        final libraryBusy = scanning || progress != null;
 
         return Stack(
           children: [
@@ -468,7 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                     icon: const FolderOpenGlyph(),
                                     title: 'Выбрать папку музыки',
                                     description:
-                                        'Каталог на устройстве для скана и загрузок из Браузера.',
+                                        'Каталог на устройстве для скана и загрузок.',
                                     onPressed: busy
                                         ? null
                                         : () => _pickMusicFolder(library),
@@ -509,103 +400,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            _SectionCard(
-                              title: 'Метаданные',
-                              child: _Group(
-                                children: [
-                                  _SettingAction(
-                                    icon: const ManageSearchGlyph(),
-                                    title: 'Поиск пустых метаданных',
-                                    description:
-                                        'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста. «Метаданные готовы» не требует жанр.',
-                                    onPressed: busy
-                                        ? null
-                                        : () => library.reportEmptyMetadata(),
-                                  ),
-                                  _SettingAction(
-                                    icon: const TravelExploreGlyph(),
-                                    title: 'Заполнить пустые метаданные',
-                                    description:
-                                        'Идёт по списку «Нехватает метаданных» и заполняет поля, обложку, продюсера и текст (Genius / iTunes / Deezer).',
-                                    onPressed: busy
-                                        ? null
-                                        : () => library.fillEmptyMetadata(),
-                                  ),
-                                  _SettingAction(
-                                    icon: const HeadphonesGlyph(),
-                                    title: 'Поиск метаданных продюсеров',
-                                    description:
-                                        'Идёт по списку «Нехватает Prod.» и записывает только продюсера.',
-                                    onPressed: busy
-                                        ? null
-                                        : () =>
-                                            library.fillMissingProducers(),
-                                  ),
-                                  _SettingAction(
-                                    icon: const LyricsGlyph(),
-                                    title: 'Поиск текста',
-                                    description:
-                                        'Идёт по списку «Нехватает текста»; если текст уже есть, трек пропускается.',
-                                    onPressed: busy
-                                        ? null
-                                        : () => library.fillMissingLyrics(),
-                                  ),
-                                  _SettingAction(
-                                    icon: const RestartGlyph(),
-                                    title: 'Повторный поиск текста',
-                                    description:
-                                        'Ищет текст для всех песен заново, даже если текст уже заполнен.',
-                                    onPressed: busy
-                                        ? null
-                                        : () => library.refillAllLyrics(),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _SectionCard(
-                              title: 'Названия и фото',
-                              child: _Group(
-                                children: [
-                                  _SettingAction(
-                                    icon: const EditGlyph(),
-                                    title: 'Фикс названий',
-                                    description:
-                                        'Убирает в конце названия feat. и prod by, в том числе в скобках.',
-                                    onPressed: busy
-                                        ? null
-                                        : () {
-                                            final player = context
-                                                .read<PlayerService>();
-                                            library.fixTitleCredits(
-                                              onUpdated: (updated, oldKey) {
-                                                player.syncTrack(
-                                                  updated,
-                                                  oldTrackKey: oldKey,
-                                                );
-                                              },
-                                            );
-                                          },
-                                  ),
-                                  _SettingAction(
-                                    icon: const FacePhotoGlyph(),
-                                    title: 'Поиск фотографий артистов',
-                                    description:
-                                        'Ищет фото артистов. Ручные фото не перезаписываются.',
-                                    onPressed: busy
-                                        ? null
-                                        : () =>
-                                            _refreshArtistPhotos(library),
-                                  ),
-                                ],
-                              ),
-                            ),
                             if (scanning ||
                                 progress != null ||
-                                photoProgress != null ||
                                 library.jobLog.isNotEmpty ||
-                                _photosMessage != null ||
                                 library.lastScanMessage != null) ...[
                               const SizedBox(height: 12),
                               _SectionCard(
@@ -625,24 +422,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                                             ? library.cancelScan
                                             : null,
                                       ),
-                                    if (photoProgress != null) ...[
-                                      if (scanning || progress != null)
-                                        const SizedBox(height: 8),
-                                      _JobProgress(
-                                        label:
-                                            '${photoProgress.done} / ${photoProgress.total}'
-                                            '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
-                                            '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
-                                        value: photoProgress.ratio,
-                                      ),
-                                    ],
                                     if (library.jobLog.isNotEmpty) ...[
                                       const SizedBox(height: 8),
                                       _JobLog(lines: library.jobLog),
-                                    ],
-                                    if (_photosMessage != null) ...[
-                                      const SizedBox(height: 10),
-                                      _StatusNote(text: _photosMessage!),
                                     ],
                                     if (library.lastScanMessage != null) ...[
                                       const SizedBox(height: 10),
@@ -662,9 +444,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _SectionCard(
-                              title: 'Google Drive',
+                              title: 'Яндекс.Диск',
                               subtitle:
-                                  'Плейлисты, прослушивания, объединения и флаги настроек. Без MP3 и фото.',
+                                  'Что уходит на Диск. Тумблеры только на этом устройстве.',
                               child: Column(
                                 crossAxisAlignment:
                                     CrossAxisAlignment.stretch,
@@ -680,38 +462,25 @@ class _SettingsScreenState extends State<SettingsScreen>
                                       if (!sync.isSignedIn)
                                         _SettingAction(
                                           icon: const UploadGlyph(),
-                                          title: 'Войти через Google',
+                                          title: 'Войти через Яндекс',
                                           description:
-                                              'Доступ только к скрытой папке приложения в Drive.',
+                                              'Откроется браузер — вставьте код подтверждения в приложение.',
                                           onPressed: busy
                                               ? null
                                               : () => _signInDrive(sync),
                                         )
                                       else ...[
-                                        if (sync.needsDriveConsent ||
-                                            !sync.hasDriveAccess)
-                                          _SettingAction(
-                                            icon: const UploadGlyph(),
-                                            title: 'Разрешить Drive',
-                                            description:
-                                                'Отдельный шаг после выбора аккаунта — иначе Google зависает.',
-                                            onPressed: busy
-                                                ? null
-                                                : () =>
-                                                    _grantDriveAccess(sync),
-                                          ),
-                                        if (sync.hasDriveAccess)
-                                          _SettingAction(
-                                            icon: const RestartGlyph(),
-                                            title: 'Синхронизировать',
-                                            description: sync.lastSyncAt == null
-                                                ? 'Загрузить и скачать изменения.'
-                                                : 'Последний синк: ${DateFormat('dd.MM.yyyy HH:mm').format(sync.lastSyncAt!.toLocal())}',
-                                            onPressed: busy
-                                                ? null
-                                                : () =>
-                                                    _syncDrive(library, sync),
-                                          ),
+                                        _SettingAction(
+                                          icon: const RestartGlyph(),
+                                          title: 'Синхронизировать',
+                                          description: sync.lastSyncAt == null
+                                              ? 'Загрузить и скачать изменения.'
+                                              : 'Последний синк: ${DateFormat('dd.MM.yyyy HH:mm').format(sync.lastSyncAt!.toLocal())}',
+                                          onPressed: busy
+                                              ? null
+                                              : () =>
+                                                  _syncDrive(library, sync),
+                                        ),
                                         _SettingAction(
                                           icon: const DownloadGlyph(),
                                           title: 'Выйти',
@@ -722,6 +491,75 @@ class _SettingsScreenState extends State<SettingsScreen>
                                               : () => _signOutDrive(sync),
                                         ),
                                       ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _Group(
+                                    children: [
+                                      _SettingSwitch(
+                                        title: 'Прослушивания',
+                                        subtitle:
+                                            'История и счётчики прослушиваний.',
+                                        value: context.select<
+                                            SettingsService, bool>(
+                                          (s) => s.syncPlays,
+                                        ),
+                                        onChanged: busy
+                                            ? null
+                                            : settings.setSyncPlays,
+                                      ),
+                                      _SettingSwitch(
+                                        title: 'Объединённые карточки',
+                                        subtitle:
+                                            'Слияния артистов и продюсеров.',
+                                        value: context.select<
+                                            SettingsService, bool>(
+                                          (s) => s.syncAliases,
+                                        ),
+                                        onChanged: busy
+                                            ? null
+                                            : settings.setSyncAliases,
+                                      ),
+                                      _SettingSwitch(
+                                        title: 'Плейлисты',
+                                        subtitle:
+                                            'Ваши плейлисты (без системных).',
+                                        value: context.select<
+                                            SettingsService, bool>(
+                                          (s) => s.syncPlaylists,
+                                        ),
+                                        onChanged: busy
+                                            ? null
+                                            : settings.setSyncPlaylists,
+                                      ),
+                                      _SettingSwitch(
+                                        title: 'Плейлист «Облако»',
+                                        subtitle:
+                                            'До 100 треков на Диске. Выкл. — скрыть из списка.',
+                                        value: context.select<
+                                            SettingsService, bool>(
+                                          (s) => s.syncCloudPlaylist,
+                                        ),
+                                        onChanged: busy
+                                            ? null
+                                            : (v) async {
+                                                await settings
+                                                    .setSyncCloudPlaylist(v);
+                                                await library.reload();
+                                              },
+                                      ),
+                                      _SettingSwitch(
+                                        title: 'Фотографии артистов',
+                                        subtitle:
+                                            'Портреты на карточках артистов.',
+                                        value: context.select<
+                                            SettingsService, bool>(
+                                          (s) => s.syncArtistPhotos,
+                                        ),
+                                        onChanged: busy
+                                            ? null
+                                            : settings.setSyncArtistPhotos,
+                                      ),
                                     ],
                                   ),
                                   if (sync.busy) ...[
@@ -755,33 +593,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                             const SizedBox(height: 12),
                             _SectionCard(
-                              title: 'Резервная копия',
-                              subtitle:
-                                  'Плейлисты, фото, история, объединения и выбранные обложки релизов. MP3 не входят.',
+                              title: 'Данные',
+                              subtitle: 'Локальные счётчики прослушиваний.',
                               child: Column(
                                 crossAxisAlignment:
                                     CrossAxisAlignment.stretch,
                                 children: [
                                   _Group(
                                     children: [
-                                      _SettingAction(
-                                        icon: const UploadGlyph(),
-                                        title: 'Экспорт',
-                                        description:
-                                            'Архив плейлистов, фото, истории, объединений и обложек релизов.',
-                                        onPressed: busy
-                                            ? null
-                                            : () => _export(library),
-                                      ),
-                                      _SettingAction(
-                                        icon: const DownloadGlyph(),
-                                        title: 'Импорт',
-                                        description:
-                                            'Заменит данные приложения из архива.',
-                                        onPressed: busy
-                                            ? null
-                                            : () => _import(library),
-                                      ),
                                       _SettingAction(
                                         icon: const RestartGlyph(),
                                         title: 'Сбросить',
@@ -809,7 +628,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          'Обработка архива…',
+                                          'Обработка…',
                                           style: GoogleFonts.figtree(
                                             color: AppTheme.paperMuted,
                                             fontSize: 12,

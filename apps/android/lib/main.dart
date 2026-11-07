@@ -88,6 +88,7 @@ class _BootAppState extends State<_BootApp> {
         sync: sync,
       );
       library.attachSync(sync);
+      sync.attachLibrary(library);
       final player = PlayerService(library, settings);
       library.unlockAudioForWrite = player.whileAudioUnlocked;
       await library.init();

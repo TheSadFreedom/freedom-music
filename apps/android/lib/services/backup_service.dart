@@ -292,7 +292,8 @@ class BackupService {
 
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
-    await _db.ensureIncompletePlaylist();
+    await _db.ensureCloudPlaylist();
+    await _db.removeMetaCatalogPlaylists();
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
 

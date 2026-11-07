@@ -475,7 +475,7 @@ class PlayerService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Стрим по URL без сохранения в библиотеку (превью из Браузера).
+  /// Стрим по URL без сохранения в библиотеку (превью из мода).
   Future<void> playRemote(
     Uri uri, {
     required String title,
@@ -898,9 +898,22 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> removeTrackFromQueue(String trackKey) async {
-    final wasCurrent = current?.trackKey == trackKey;
+    await removeTracksFromQueue([trackKey]);
+  }
+
+  Future<void> removeTracksFromQueue(Iterable<String> trackKeys) async {
+    final remove = Set<String>.of(trackKeys);
+    if (remove.isEmpty) return;
+    final hadAny = _queue.any((t) => remove.contains(t.trackKey));
+    if (!hadAny) return;
+
+    final wasCurrent =
+        current != null && remove.contains(current!.trackKey);
     final nextAfter = _index < _queue.length - 1 ? _index : _index - 1;
-    _queue = [for (final t in _queue) if (t.trackKey != trackKey) t];
+    _queue = [
+      for (final t in _queue)
+        if (!remove.contains(t.trackKey)) t,
+    ];
     _queueEpoch++;
     if (_queue.isEmpty) {
       _index = -1;

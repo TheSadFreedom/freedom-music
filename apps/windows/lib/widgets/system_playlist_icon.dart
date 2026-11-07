@@ -28,6 +28,8 @@ class SystemPlaylistIcon extends StatelessWidget {
     switch (kind) {
       case Playlist.kindNew:
         return const FiberNewGlyph();
+      case Playlist.kindCloud:
+        return const CloudOutlinedGlyph();
       case Playlist.kindIncomplete:
         return const ArticleGlyph();
       case Playlist.kindNoProducer:

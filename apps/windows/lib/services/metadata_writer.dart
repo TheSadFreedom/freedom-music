@@ -67,16 +67,16 @@ class MetadataDraft {
 }
 
 class MetadataWriter {
-  /// Writes [track] tags into [pickedPath], deletes previous audio files,
-  /// returns the track bound to the replacement path.
+  /// Подменяет аудиофайл: старые файлы удаляются, метаданные [track] сохраняются.
+  /// В индексе остаётся ровно один путь.
   static Future<Track> replaceAudioFile({
     required Track track,
     required String pickedPath,
     required AppPaths paths,
   }) async {
-    final oldPaths = [
+    final oldPaths = <String>{
       for (final path in track.filePaths) p.normalize(path),
-    ];
+    }.toList(growable: false);
     if (oldPaths.isEmpty) {
       throw StateError('У трека нет файлов на диске');
     }
@@ -120,10 +120,23 @@ class MetadataWriter {
           msg.contains('MetadataParserException') ||
           msg.contains('NoMetadataParserException') ||
           msg.contains('No available parser');
-      if (!parserFailed) rethrow;
-      // Плеер часто играет raw AAC/ADTS, который теггер не знает.
+      if (!parserFailed) {
+        // Откат только нового пути (старые ещё на диске до cleanup ниже).
+        if (!oldPaths.any((path) => p.equals(path, workingPath))) {
+          await _deleteWithRetries(File(workingPath));
+        }
+        rethrow;
+      }
+      // Плеер часто играет raw AAC/ADTS, который теггер не знает —
+      // метаданные остаются в БД/кэше обложки.
       tagged = await _applyDraftWithoutFileTags(base, draft, paths: paths);
     }
+
+    // Старые файлы и хвост download — только после успешной подмены.
+    await deleteReplacedAudioFiles(
+      oldPaths: [...oldPaths, picked],
+      keepPaths: [workingPath],
+    );
 
     int? durationMs = track.durationMs;
     try {
@@ -131,7 +144,12 @@ class MetadataWriter {
       durationMs = meta.duration?.inMilliseconds ?? durationMs;
     } catch (_) {}
 
-    return tagged.copyWith(durationMs: durationMs);
+    // Жёстко: старая личность трека + один путь (скан не должен подтянуть дубликаты).
+    return track.copyWith(
+      filePaths: [workingPath],
+      durationMs: durationMs,
+      coverPath: tagged.coverPath,
+    );
   }
 
   /// Метаданные только в индекс/кэш обложки — без записи в аудиоконтейнер.
@@ -143,7 +161,8 @@ class MetadataWriter {
     final title = isBlankMeta(draft.title) ? 'Unknown' : draft.title.trim();
     final artist = storedArtists(draft.artist);
     final album = isBlankMeta(draft.album) ? 'Unknown' : draft.album.trim();
-    final genre = isBlankMeta(draft.genre) ? 'Unknown' : draft.genre.trim();
+    // Empty genre stays empty — do not coerce to Unknown (shows as filled).
+    final genre = isBlankMeta(draft.genre) ? '' : draft.genre.trim();
     final albumArtist = storedPeople(draft.albumArtist);
     final producerNamesOnly = producerNames(draft.producer);
     final producer = producerNamesOnly.isEmpty
@@ -208,7 +227,8 @@ class MetadataWriter {
     }
   }
 
-  /// Подменяет аудио: при том же расширении — на месте (тот же путь в библиотеке).
+  /// Кладёт [picked] на место primary (то же имя) или рядом при другом расширении.
+  /// Удаление старых путей — снаружи, после записи метаданных.
   static Future<String> _overwritePrimaryAudio({
     required String picked,
     required String primaryOld,
@@ -265,7 +285,7 @@ class MetadataWriter {
       return oldNorm;
     }
 
-    // Другое расширение — новый файл рядом; старый удалит вызывающий.
+    // Другое расширение — новый файл рядом со старым именем.
     var dest = p.join(
       destDir,
       '${p.basenameWithoutExtension(oldNorm)}$safeExt',
@@ -368,7 +388,8 @@ class MetadataWriter {
     final title = isBlankMeta(draft.title) ? 'Unknown' : draft.title.trim();
     final artist = storedArtists(draft.artist);
     final album = isBlankMeta(draft.album) ? 'Unknown' : draft.album.trim();
-    final genre = isBlankMeta(draft.genre) ? 'Unknown' : draft.genre.trim();
+    // Empty genre stays empty — Unknown would look «filled» after clear+save.
+    final genre = isBlankMeta(draft.genre) ? '' : draft.genre.trim();
     final albumArtist = storedPeople(draft.albumArtist);
     final producerNamesOnly = producerNames(draft.producer);
     final producer = producerNamesOnly.isEmpty
@@ -493,7 +514,13 @@ class MetadataWriter {
         tag.setTitle(title);
         tag.setArtist(artist);
         tag.setAlbum(album);
-        tag.setGenres(genre == 'Unknown' ? <String>[] : [genre]);
+        // ID3: empty genres alone is not enough — contentType (TCON) must
+        // be cleared or the writer writes the old genre back.
+        final blankGenre = isBlankMeta(genre);
+        tag.setGenres(blankGenre ? <String>[] : [genre.trim()]);
+        if (tag is Mp3Metadata && blankGenre) {
+          tag.contentType = null;
+        }
         tag.setYear(year != null ? DateTime(year) : null);
         tag.setTrackNumber(trackNumber);
         tag.setTrackTotal(trackTotal);

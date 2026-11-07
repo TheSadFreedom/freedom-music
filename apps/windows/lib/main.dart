@@ -15,6 +15,7 @@ import 'screens/shell.dart';
 import 'services/audio_handler.dart';
 import 'services/desktop_shell.dart';
 import 'services/library_service.dart';
+import 'services/mod_service.dart';
 import 'services/player_service.dart';
 import 'services/settings_service.dart';
 import 'sync/sync_service.dart';
@@ -91,6 +92,7 @@ class _Ready {
     required this.library,
     required this.player,
     required this.sync,
+    required this.mods,
     this.desktopShell,
   });
 
@@ -98,6 +100,7 @@ class _Ready {
   final LibraryService library;
   final PlayerService player;
   final SyncService sync;
+  final ModService mods;
   final DesktopShell? desktopShell;
 }
 
@@ -130,11 +133,19 @@ class _BootAppState extends State<_BootApp> {
         sync: sync,
       );
       library.attachSync(sync);
+      sync.attachLibrary(library);
       final player = PlayerService(library, settings);
       library.unlockAudioForWrite = player.whileAudioUnlocked;
       await library.init();
       // Queue only — enough for Home; SMTC / tray / Drive continue in background.
       await player.restoreSession();
+
+      final mods = ModService(
+        paths: paths,
+        library: library,
+        player: player,
+      );
+      await mods.init();
 
       DesktopShell? desktopShell;
       if (_isDesktop) {
@@ -147,6 +158,7 @@ class _BootAppState extends State<_BootApp> {
           library: library,
           player: player,
           sync: sync,
+          mods: mods,
           desktopShell: desktopShell,
         );
       });
@@ -204,6 +216,7 @@ class _BootAppState extends State<_BootApp> {
         ChangeNotifierProvider.value(value: ready.library),
         ChangeNotifierProvider.value(value: ready.player),
         ChangeNotifierProvider.value(value: ready.sync),
+        ChangeNotifierProvider.value(value: ready.mods),
         if (ready.desktopShell != null)
           ChangeNotifierProvider.value(value: ready.desktopShell),
       ],

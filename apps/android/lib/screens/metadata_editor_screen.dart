@@ -15,7 +15,6 @@ import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/image_pick.dart';
-import '../utils/lyrics_format.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/lyrics_view.dart';
 
@@ -78,7 +77,6 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
   bool _replacing = false;
-  bool _lookingUp = false;
   String? _error;
 
   Uint8List? _newCoverBytes;
@@ -229,154 +227,6 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
       if (!mounted) return;
       setState(() {
         _replacing = false;
-        _error = e.toString();
-      });
-    }
-  }
-
-  Track _formSnapshot() {
-    int? parsePos(String raw) {
-      final t = raw.trim();
-      if (t.isEmpty) return null;
-      return int.tryParse(t);
-    }
-
-    final yearText = _year.text.trim();
-    final year = yearText.isEmpty ? null : int.tryParse(yearText);
-    final albumText = _album.text.trim();
-    final lyricsText = _lyrics.text;
-    return _track.copyWith(
-      title: _title.text.trim().isEmpty ? _track.title : _title.text.trim(),
-      artist: _artist.text.trim().isEmpty ? _track.artist : _artist.text.trim(),
-      album: albumText.isEmpty ? 'Unknown' : albumText,
-      genre: _genre.text.trim().isEmpty ? 'Unknown' : _genre.text.trim(),
-      albumArtist: _albumArtist.text.trim().isEmpty
-          ? null
-          : _albumArtist.text.trim(),
-      producer:
-          _producer.text.trim().isEmpty ? null : _producer.text.trim(),
-      note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-      lyrics: hasLyrics(lyricsText) ? lyricsText : null,
-      year: year,
-      trackNumber: parsePos(_trackNumber.text),
-      trackTotal: parsePos(_trackTotal.text),
-      discNumber: parsePos(_discNumber.text),
-    );
-  }
-
-  Future<void> _lookupFill() async {
-    if (_lookingUp || _saving || _replacing) return;
-    final artist = _artist.text.trim();
-    final title = _title.text.trim();
-    if (artist.isEmpty ||
-        artist.toLowerCase() == 'unknown' ||
-        title.isEmpty) {
-      setState(() => _error = 'Для поиска нужны артист и название');
-      return;
-    }
-
-    setState(() {
-      _lookingUp = true;
-      _error = null;
-    });
-    try {
-      final library = context.read<LibraryService>();
-      final before = _formSnapshot();
-      final draft = await library.suggestMetadataFill(before);
-      if (!mounted) return;
-      if (draft == null) {
-        setState(() => _lookingUp = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Ничего нового не нашлось',
-              style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
-            ),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: AppTheme.inkLift,
-          ),
-        );
-        return;
-      }
-
-      var filled = 0;
-      void put(TextEditingController c, String? next, String? prev) {
-        final value = metaFieldText(next);
-        final was = metaFieldText(prev);
-        if (value.isEmpty || value == was) return;
-        // Как в настройках: только пустые поля формы.
-        if (was.isNotEmpty) return;
-        c.text = value;
-        filled++;
-      }
-
-      put(_album, draft.album, before.album);
-      put(_albumArtist, draft.albumArtist, before.albumArtist);
-      put(_producer, draft.producer, before.producer);
-      if ((_year.text.trim().isEmpty) &&
-          draft.year != null &&
-          draft.year! >= 1000 &&
-          draft.year != before.year) {
-        _year.text = '${draft.year}';
-        filled++;
-      }
-      if (_trackNumber.text.trim().isEmpty &&
-          draft.trackNumber != null &&
-          draft.trackNumber! >= 1 &&
-          draft.trackNumber != before.trackNumber) {
-        _trackNumber.text = '${draft.trackNumber}';
-        filled++;
-      }
-      if (_trackTotal.text.trim().isEmpty &&
-          draft.trackTotal != null &&
-          draft.trackTotal! >= 1 &&
-          draft.trackTotal != before.trackTotal) {
-        _trackTotal.text = '${draft.trackTotal}';
-        filled++;
-      }
-      if (_discNumber.text.trim().isEmpty &&
-          draft.discNumber != null &&
-          draft.discNumber! >= 1 &&
-          draft.discNumber != before.discNumber) {
-        _discNumber.text = '${draft.discNumber}';
-        filled++;
-      }
-      if (!hasLyrics(_lyrics.text) && hasLyrics(draft.lyrics)) {
-        _lyrics.text = draft.lyrics!.trim();
-        filled++;
-      }
-
-      final hasCoverNow = !_removeCover &&
-          (_newCoverBytes != null ||
-              (_track.coverPath != null &&
-                  _track.coverPath!.trim().isNotEmpty &&
-                  File(_track.coverPath!).existsSync()));
-      if (!hasCoverNow &&
-          draft.coverBytes != null &&
-          draft.coverBytes!.isNotEmpty) {
-        _newCoverBytes = draft.coverBytes;
-        _newCoverMime = draft.coverMime ?? 'image/jpeg';
-        _removeCover = false;
-        filled++;
-      }
-
-      setState(() => _lookingUp = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            filled > 0
-                ? 'Заполнено полей: $filled — сохрани, если ок'
-                : 'Ничего нового не нашлось',
-            style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
-          ),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.inkLift,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _lookingUp = false;
         _error = e.toString();
       });
     }
@@ -584,25 +434,16 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _ChipAction(
-                        onPressed: busy ? null : _lookupFill,
-                        accent: true,
-                        icon: Icons.travel_explore_rounded,
-                        label: _lookingUp ? 'Ищем…' : 'Из сети',
-                      ),
-                      _ChipAction(
-                        onPressed: busy || _track.primaryPath == null
-                            ? null
-                            : _replaceFile,
-                        accent: false,
-                        icon: Icons.swap_horiz_rounded,
-                        label: _replacing ? 'Замена…' : 'Заменить файл',
-                      ),
-                    ],
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _ChipAction(
+                      onPressed: busy || _track.primaryPath == null
+                          ? null
+                          : _replaceFile,
+                      accent: false,
+                      icon: Icons.swap_horiz_rounded,
+                      label: _replacing ? 'Замена…' : 'Заменить файл',
+                    ),
                   ),
                   const SizedBox(height: 22),
                   _sectionLabel('Основные'),
@@ -746,7 +587,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final busy = _saving || _replacing || _lookingUp;
+    final busy = _saving || _replacing;
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
 
     if (widget.embedded) {

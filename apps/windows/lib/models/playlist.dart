@@ -14,18 +14,23 @@ class Playlist {
 
   static const kindTrash = 'trash';
   static const kindNew = 'new';
+  static const kindCloud = 'cloud';
   static const kindIncomplete = 'incomplete';
   static const kindNoProducer = 'no_producer';
   static const kindMissingGenre = 'missing_genre';
   static const kindMissingLyrics = 'missing_lyrics';
   static const kindMetadataReady = 'metadata_ready';
 
+  static const cloudName = 'Облако';
   static const missingMetadataName = 'Нехватает метаданных';
   static const missingProducerName = 'Нехватает Prod.';
   static const missingGenreName = 'Нехватает жанра';
   static const missingLyricsName = 'Нехватает текста';
   static const metadataReadyName = 'Метаданные готовы';
 
+  static const cloudDescription =
+      'До 100 треков. MP3 синхронизируются через Яндекс.Диск между устройствами. '
+      'Удаление из плейлиста не удаляет трек из библиотеки.';
   static const missingMetadataDescription =
       'Нет обложки, названия, артиста, альбома, артиста альбома, года, номера, числа треков или диска.';
   static const missingProducerDescription = 'Нет продюсера.';
@@ -36,6 +41,9 @@ class Playlist {
 
   /// How long a freshly scanned track stays in «Новинки».
   static const newTrackDays = 7;
+
+  /// Max tracks in the cloud playlist (Yandex MP3 sync).
+  static const cloudTrackLimit = 100;
 
   final int id;
   /// Stable id for Drive sync (not the local INTEGER primary key).
@@ -52,6 +60,7 @@ class Playlist {
 
   bool get isTrash => systemKind == kindTrash;
   bool get isNew => systemKind == kindNew;
+  bool get isCloud => systemKind == kindCloud;
   bool get isIncomplete => systemKind == kindIncomplete;
   bool get isNoProducer => systemKind == kindNoProducer;
   bool get isMissingGenre => systemKind == kindMissingGenre;
@@ -64,6 +73,9 @@ class Playlist {
       isMissingLyrics ||
       isMetadataReady;
   bool get isSystem => systemKind != null;
+
+  /// Cloud is system but allows manual add/remove.
+  bool get allowsManualTracks => isCloud;
 
   DateTime get lastTouched => updatedAt ?? createdAt;
 
