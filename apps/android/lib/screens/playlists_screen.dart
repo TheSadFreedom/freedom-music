@@ -25,6 +25,7 @@ import '../widgets/app_bottom_sheet.dart';
 import '../widgets/kept_icons.dart';
 import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_tile.dart';
+import 'calendar_screen.dart';
 import 'genres_screen.dart';
 
 const _yellow = Color(0xFFFFDB4D);
@@ -39,16 +40,19 @@ class PlaylistsScreen extends StatelessWidget {
     final system = _systemPlaylists(library.playlists);
     final mine = library.playlists.where((p) => !p.isSystem).toList();
     final genres = library.tracksByGenre();
-    final total = system.length + mine.length + genres.length;
+    final calendarSections = library.releaseCalendar();
+    final releaseCount = calendarSections.fold<int>(
+      0,
+      (n, s) => n + s.releases.length,
+    );
+    final total = system.length + mine.length + genres.length + 1;
     return Stack(
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _PlaylistsHeroHeader(
-              subtitle: total == 0
-                  ? 'подборки и жанры'
-                  : '$total · свои, жанры и системные',
+              subtitle: '$total · свои, жанры, календарь и системные',
             ),
             Expanded(
               child: ListView(
@@ -105,6 +109,20 @@ class PlaylistsScreen extends StatelessWidget {
                       ],
                     ),
                   ],
+                  _SectionTitle(
+                    title: 'Календарь',
+                    subtitle: releaseCount == 0 ? null : '$releaseCount',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const CalendarScreen(),
+                      ),
+                    ),
+                  ),
+                  _CoverCarousel(
+                    items: [
+                      _itemForCalendar(context, releaseCount),
+                    ],
+                  ),
                   _SectionTitle(
                     title: 'Системные',
                     subtitle: '${system.length}',
@@ -225,6 +243,35 @@ class PlaylistsScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  _CoverItem _itemForCalendar(BuildContext context, int releaseCount) {
+    return _CoverItem(
+      title: 'Календарь',
+      kind: 'Релизы',
+      meta: releaseCount == 0
+          ? 'По датам выхода'
+          : _releasesLabel(releaseCount),
+      icon: Icons.calendar_month_outlined,
+      iconColor: const Color(0xFF7EC8A3),
+      onOpen: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const CalendarScreen(),
+          ),
+        );
+      },
+    );
+  }
+
+  String _releasesLabel(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count релиз';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return '$count релиза';
+    }
+    return '$count релизов';
   }
 
   String _playlistMeta(Playlist playlist, int count) {

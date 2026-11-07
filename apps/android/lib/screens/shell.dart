@@ -10,8 +10,8 @@ import '../widgets/mini_player.dart';
 import '../widgets/player_expansion.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
-import 'library_screen.dart';
 import 'playlists_screen.dart';
+import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -66,9 +66,9 @@ class _AppShellState extends State<AppShell> {
       label: 'Плейлисты',
     ),
     _NavItem(
-      icon: Icons.library_music_outlined,
-      selectedIcon: Icons.library_music,
-      label: 'Библиотека',
+      icon: Icons.settings_outlined,
+      selectedIcon: Icons.settings,
+      label: 'Настройки',
     ),
   ];
 
@@ -77,23 +77,22 @@ class _AppShellState extends State<AppShell> {
       0 => HomeScreen(key: _homeKey),
       1 => const ChartScreen(),
       2 => const PlaylistsScreen(),
-      _ => const LibraryScreen(),
+      _ => const SettingsScreen(),
     };
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (index != 0)
+        // SettingsScreen рисует свой AmbientBackdrop.
+        if (index == 1 || index == 2)
           AmbientBackdrop(
             accent: switch (index) {
               1 => const Color(0xFF8B6B3D),
-              2 => const Color(0xFF5A3A6E),
-              _ => const Color(0xFF3D6B8B),
+              _ => const Color(0xFF5A3A6E),
             },
             secondary: switch (index) {
               1 => const Color(0xFF5A3A2A),
-              2 => const Color(0xFF3D2A5C),
-              _ => const Color(0xFF2A4A5C),
+              _ => const Color(0xFF3D2A5C),
             },
           ),
         page,

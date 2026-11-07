@@ -6,6 +6,7 @@ import '../data/database.dart';
 import '../data/track_key.dart';
 import '../models/artist_release.dart';
 import '../models/track.dart';
+import '../screens/artists_screen.dart';
 import '../screens/metadata_editor_screen.dart';
 import '../screens/release_detail_screen.dart';
 import '../screens/release_metadata_editor_screen.dart';
@@ -16,6 +17,7 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import '../utils/playlist_actions.dart';
 import '../utils/trash_actions.dart';
+import '../widgets/kept_icons.dart';
 import '../widgets/playing_track.dart';
 import '../widgets/screen_title.dart';
 import '../widgets/track_cover_play.dart';
@@ -245,6 +247,8 @@ class _ChartScreenState extends State<ChartScreen> {
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
     final player = context.read<PlayerService>();
+    final artists = library.tracksByArtist().length;
+    final producers = library.tracksByProducer().length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -255,7 +259,17 @@ class _ChartScreenState extends State<ChartScreen> {
         ),
         Expanded(
           child: library.isEmpty
-              ? const _ChartEmptyState()
+              ? ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 32),
+                  children: [
+                    _ChartBrowseHub(
+                      artists: artists,
+                      producers: producers,
+                    ),
+                    const SizedBox(height: 24),
+                    const _ChartEmptyState(),
+                  ],
+                )
               : FutureBuilder<_ChartData>(
                   key: ValueKey(
                     'chart-${library.catalogTracks.length}-${library.playStatsEpoch}',
@@ -263,11 +277,21 @@ class _ChartScreenState extends State<ChartScreen> {
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
-                      return const Center(
-                        child: CircularProgressIndicator(
-                          color: _kChartGold,
-                          strokeWidth: 2.4,
-                        ),
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(0, 4, 0, 32),
+                        children: [
+                          _ChartBrowseHub(
+                            artists: artists,
+                            producers: producers,
+                          ),
+                          const SizedBox(height: 48),
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: _kChartGold,
+                              strokeWidth: 2.4,
+                            ),
+                          ),
+                        ],
                       );
                     }
                     final data = snapshot.data;
@@ -295,6 +319,11 @@ class _ChartScreenState extends State<ChartScreen> {
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(0, 4, 0, 32),
                       children: [
+                        _ChartBrowseHub(
+                          artists: artists,
+                          producers: producers,
+                        ),
+                        const SizedBox(height: 10),
                         _ChartSectionHeader(
                           title: 'Треки',
                           subtitle: rows.isEmpty
@@ -491,43 +520,212 @@ class _ChartHeroHeader extends StatelessWidget {
   }
 }
 
+class _ChartBrowseHub extends StatelessWidget {
+  const _ChartBrowseHub({
+    required this.artists,
+    required this.producers,
+  });
+
+  final int artists;
+  final int producers;
+
+  void _open(BuildContext context, Widget page) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => page),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 118,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _ChartRoomTile(
+                    title: 'Артисты',
+                    subtitle: artists == 0
+                        ? 'Исполнители'
+                        : _countLabel(
+                            artists,
+                            one: 'артист',
+                            few: 'артиста',
+                            many: 'артистов',
+                          ),
+                    icon: const Icon(Icons.person_rounded),
+                    glow: const Color(0xFF8BB8D4),
+                    onTap: () => _open(context, const ArtistsScreen()),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ChartRoomTile(
+                    title: 'Продюсеры',
+                    subtitle: producers == 0
+                        ? 'Битмейкеры'
+                        : _countLabel(
+                            producers,
+                            one: 'продюсер',
+                            few: 'продюсера',
+                            many: 'продюсеров',
+                          ),
+                    icon: const HeadphonesGlyph(),
+                    glow: const Color(0xFFA8D080),
+                    onTap: () => _open(
+                      context,
+                      const ArtistsScreen(producers: true),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _countLabel(
+    int n, {
+    required String one,
+    required String few,
+    required String many,
+  }) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    final word = (mod10 == 1 && mod100 != 11)
+        ? one
+        : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+            ? few
+            : many;
+    return '$n $word';
+  }
+}
+
+class _ChartRoomTile extends StatelessWidget {
+  const _ChartRoomTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.glow,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget icon;
+  final Color glow;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                glow.withValues(alpha: 0.16),
+                Colors.white.withValues(alpha: 0.03),
+              ],
+            ),
+            border: Border.all(color: AppTheme.paper.withValues(alpha: 0.07)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: glow.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: IconTheme(
+                    data: IconThemeData(color: glow, size: 20),
+                    child: icon,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  title,
+                  style: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    height: 1.05,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    fontSize: 12,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ChartEmptyState extends StatelessWidget {
   const _ChartEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.ssid_chart_rounded,
-              size: 48,
-              color: _kChartGold.withValues(alpha: 0.45),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(36, 12, 36, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.ssid_chart_rounded,
+            size: 48,
+            color: _kChartGold.withValues(alpha: 0.45),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Чарт пуст',
+            style: GoogleFonts.syne(
+              color: AppTheme.paper,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Чарт пуст',
-              style: GoogleFonts.syne(
-                color: AppTheme.paper,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Сканируйте папку music в Настройках — рейтинг появится после прослушиваний.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paperMuted,
+              fontSize: 14,
+              height: 1.4,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Сканируйте папку music в Настройках — рейтинг появится после прослушиваний.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.figtree(
-                color: AppTheme.paperMuted,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
