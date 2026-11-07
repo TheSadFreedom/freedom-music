@@ -15,6 +15,9 @@ class YandexDiskClient implements CloudSyncClient {
   static const _api = 'https://cloud-api.yandex.net/v1/disk';
   static const _root = 'app:/';
 
+  /// Paths already created this session (`app:/artist_photos`, …).
+  final Set<String> _ensuredDirs = {};
+
   @override
   Future<List<CloudSyncFile>> listEventChunks() async {
     final items = await _listAll(_root);
@@ -133,6 +136,7 @@ class YandexDiskClient implements CloudSyncClient {
     required Uint8List bytes,
   }) async {
     final clean = relativePath.replaceAll(RegExp(r'^/+'), '');
+    await _ensureParentDirs(clean);
     final path = '$_root$clean';
     final linkRes = await _client.get(
       Uri.parse('$_api/resources/upload').replace(
@@ -188,6 +192,40 @@ class YandexDiskClient implements CloudSyncClient {
     }
     throw HttpException(
       'Yandex delete HTTP ${res.statusCode}: ${res.body}',
+      uri: res.request?.url,
+    );
+  }
+
+  /// Create parent folders for `artist_photos/x.jpg` → `app:/artist_photos`.
+  Future<void> _ensureParentDirs(String relativePath) async {
+    final parts = relativePath.split('/');
+    if (parts.length < 2) return;
+    var built = '';
+    for (var i = 0; i < parts.length - 1; i++) {
+      final segment = parts[i].trim();
+      if (segment.isEmpty) continue;
+      built = built.isEmpty ? segment : '$built/$segment';
+      await _ensureDir('$_root$built');
+    }
+  }
+
+  Future<void> _ensureDir(String path) async {
+    if (_ensuredDirs.contains(path)) return;
+    final res = await _client.put(
+      Uri.parse('$_api/resources').replace(
+        queryParameters: {'path': path},
+      ),
+      headers: _jsonHeaders,
+    );
+    // 201 created, 409 already exists — both OK.
+    if (res.statusCode == 201 ||
+        res.statusCode == 409 ||
+        (res.statusCode >= 200 && res.statusCode < 300)) {
+      _ensuredDirs.add(path);
+      return;
+    }
+    throw HttpException(
+      'Yandex mkdir HTTP ${res.statusCode}: ${res.body}',
       uri: res.request?.url,
     );
   }
