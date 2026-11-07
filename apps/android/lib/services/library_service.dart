@@ -257,13 +257,18 @@ class LibraryService extends ChangeNotifier {
   String? get error => _error;
   bool get isEmpty => _tracks.isEmpty;
 
+  Future<void>? _warmSecondaryFuture;
+
   Future<void> init() async {
     _loading = true;
     notifyListeners();
     try {
-      final remapped = await _db.remigrateTrackKeysToArtistTitle();
-      if (remapped > 0) {
-        await _settings.replaceChartSnapshots({});
+      if (!_settings.trackKeysRemigrated) {
+        final remapped = await _db.remigrateTrackKeysToArtistTitle();
+        if (remapped > 0) {
+          await _settings.replaceChartSnapshots({});
+        }
+        await _settings.setTrackKeysRemigrated();
       }
       if (!_settings.artistTagsRestored) {
         final restored = await _scanner.restoreOriginalArtistTags();
@@ -272,10 +277,9 @@ class LibraryService extends ChangeNotifier {
         }
         await _settings.setArtistTagsRestored();
       }
-      await reload();
-      if (_settings.scanOnStartup) {
-        await scanLibrary();
-      }
+      // Fast path only — membership / meta / mosaics warm after first UI frame.
+      // Startup scan is deferred from splash (see main._load).
+      await reload(warm: false);
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -284,19 +288,46 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  Future<void> reload() async {
+  /// Loads tracks and playlists for UI.
+  ///
+  /// When [warm] is true (default), also rebuilds system playlist membership,
+  /// meta playlists and mosaics. Startup uses `warm: false` and calls
+  /// [warmSecondary] after the first frame.
+  Future<void> reload({bool warm = true}) async {
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
-    await _db.syncTrashPlaylistMembership();
-    await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
     _trackKeyAlias.clear();
-    await _syncMetaPlaylists();
     _playlists = await _db.getPlaylists();
-    await _refreshMosaics();
     await _loadArtistAliases();
     _invalidateSearch();
     _error = null;
+    notifyListeners();
+    if (warm) await warmSecondary();
+  }
+
+  /// Rebuilds Корзина/Новинки membership, meta playlists and cover mosaics.
+  /// Safe to call concurrently — overlapping callers share one future.
+  Future<void> warmSecondary() async {
+    final inflight = _warmSecondaryFuture;
+    if (inflight != null) return inflight;
+    final done = _warmSecondaryWork();
+    _warmSecondaryFuture = done;
+    try {
+      await done;
+    } finally {
+      if (identical(_warmSecondaryFuture, done)) {
+        _warmSecondaryFuture = null;
+      }
+    }
+  }
+
+  Future<void> _warmSecondaryWork() async {
+    await _db.syncTrashPlaylistMembership();
+    await _db.syncNewPlaylistMembership();
+    await _syncMetaPlaylists();
+    _playlists = await _db.getPlaylists();
+    await _refreshMosaics();
     notifyListeners();
   }
 

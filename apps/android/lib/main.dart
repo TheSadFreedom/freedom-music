@@ -91,18 +91,8 @@ class _BootAppState extends State<_BootApp> {
       final player = PlayerService(library, settings);
       library.unlockAudioForWrite = player.whileAudioUnlocked;
       await library.init();
+      // Queue only — enough for Home; notifications / Drive continue after UI.
       await player.restoreSession();
-      await sync.loadLastSyncFromDb();
-      await sync.tryRestoreSession();
-      if (sync.isSignedIn) {
-        unawaited(sync.syncNow().then((_) async {
-          if (sync.libraryNeedsReload) {
-            sync.clearLibraryNeedsReload();
-            await library.reload();
-            library.bumpPlayStats();
-          }
-        }));
-      }
       if (!mounted) return;
       setState(() {
         _ready = _Ready(
@@ -112,6 +102,25 @@ class _BootAppState extends State<_BootApp> {
           sync: sync,
         );
       });
+
+      // Heavy work after first UI frame (init used warm: false).
+      unawaited(() async {
+        await library.warmSecondary();
+        if (settings.scanOnStartup) {
+          await library.scanLibrary();
+        }
+      }());
+      unawaited(() async {
+        await sync.loadLastSyncFromDb();
+        await sync.tryRestoreSession();
+        if (!sync.isSignedIn) return;
+        await sync.syncNow(interactive: false);
+        if (sync.libraryNeedsReload) {
+          sync.clearLibraryNeedsReload();
+          await library.reload();
+          library.bumpPlayStats();
+        }
+      }());
       // Сначала UI и диалог разрешений, потом media-notification.
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await StorageAccess.ensureNotifications();

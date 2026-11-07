@@ -23,6 +23,7 @@ class SettingsService extends ChangeNotifier {
   static const _playbackShuffleKey = 'playback_shuffle';
   static const _playbackRepeatKey = 'playback_repeat';
   static const _artistTagsRestoredKey = 'artist_tags_restored_v1';
+  static const _trackKeysRemigratedKey = 'track_keys_remigrated_v1';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
   static const _releaseCoverPrefix = 'release_cover_';
@@ -37,6 +38,14 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setArtistTagsRestored() async {
     await _prefs.setBool(_artistTagsRestoredKey, true);
+  }
+
+  /// One-shot track_key remigrate; skip O(N) walk on later launches.
+  bool get trackKeysRemigrated =>
+      _prefs.getBool(_trackKeysRemigratedKey) ?? false;
+
+  Future<void> setTrackKeysRemigrated() async {
+    await _prefs.setBool(_trackKeysRemigratedKey, true);
   }
 
   bool get scanOnStartup => _prefs.getBool(_scanOnStartupKey) ?? false;
@@ -125,11 +134,27 @@ class SettingsService extends ChangeNotifier {
     required bool shuffle,
     required String repeat,
   }) async {
-    await _prefs.setStringList(_playbackQueueKey, queueKeys);
-    await _prefs.setInt(_playbackIndexKey, index);
-    await _prefs.setInt(_playbackPositionKey, positionMs);
-    await _prefs.setBool(_playbackShuffleKey, shuffle);
-    await _prefs.setString(_playbackRepeatKey, repeat);
+    // Skip unchanged keys — full queue rewrite is the expensive part on quit.
+    final writes = <Future<bool>>[];
+    final prevKeys = playbackQueueKeys;
+    if (prevKeys.length != queueKeys.length ||
+        !listEquals(prevKeys, queueKeys)) {
+      writes.add(_prefs.setStringList(_playbackQueueKey, queueKeys));
+    }
+    if (playbackIndex != index) {
+      writes.add(_prefs.setInt(_playbackIndexKey, index));
+    }
+    if (playbackPositionMs != positionMs) {
+      writes.add(_prefs.setInt(_playbackPositionKey, positionMs));
+    }
+    if (playbackShuffle != shuffle) {
+      writes.add(_prefs.setBool(_playbackShuffleKey, shuffle));
+    }
+    if (playbackRepeat != repeat) {
+      writes.add(_prefs.setString(_playbackRepeatKey, repeat));
+    }
+    if (writes.isEmpty) return;
+    await Future.wait(writes);
   }
 
   Future<void> clearPlaybackSession() async {

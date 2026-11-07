@@ -23,6 +23,7 @@ class SettingsService extends ChangeNotifier {
   static const _playbackShuffleKey = 'playback_shuffle';
   static const _playbackRepeatKey = 'playback_repeat';
   static const _artistTagsRestoredKey = 'artist_tags_restored_v1';
+  static const _trackKeysRemigratedKey = 'track_keys_remigrated_v1';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
   static const _releaseCoverPrefix = 'release_cover_';
@@ -37,6 +38,14 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setArtistTagsRestored() async {
     await _prefs.setBool(_artistTagsRestoredKey, true);
+  }
+
+  /// One-shot track_key remigrate; skip O(N) walk on later launches.
+  bool get trackKeysRemigrated =>
+      _prefs.getBool(_trackKeysRemigratedKey) ?? false;
+
+  Future<void> setTrackKeysRemigrated() async {
+    await _prefs.setBool(_trackKeysRemigratedKey, true);
   }
 
   bool get scanOnStartup => _prefs.getBool(_scanOnStartupKey) ?? false;
