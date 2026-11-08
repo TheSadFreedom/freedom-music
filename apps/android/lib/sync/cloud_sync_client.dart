@@ -16,8 +16,6 @@ abstract class CloudSyncClient {
   static const metaName = 'fm_sync_meta.json';
   static const cloudPlaylistManifest = 'fm_cloud_playlist.json';
   static const cloudTracksDir = 'cloud_tracks';
-  static const artistPhotosManifest = 'fm_artist_photos.json';
-  static const artistPhotosDir = 'artist_photos';
 
   Future<List<CloudSyncFile>> listEventChunks();
 
