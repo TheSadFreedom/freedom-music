@@ -32,7 +32,6 @@ class SettingsService extends ChangeNotifier {
   static const _syncAliasesKey = 'sync_aliases';
   static const _syncPlaylistsKey = 'sync_playlists';
   static const _syncCloudPlaylistKey = 'sync_cloud_playlist';
-  static const _syncArtistPhotosKey = 'sync_artist_photos';
   static Future<SettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
     return SettingsService(prefs);
@@ -107,14 +106,6 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setSyncCloudPlaylist(bool value) async {
     await _prefs.setBool(_syncCloudPlaylistKey, value);
-    notifyListeners();
-  }
-
-  /// Yandex sync: artist portrait files.
-  bool get syncArtistPhotos => _prefs.getBool(_syncArtistPhotosKey) ?? true;
-
-  Future<void> setSyncArtistPhotos(bool value) async {
-    await _prefs.setBool(_syncArtistPhotosKey, value);
     notifyListeners();
   }
 
@@ -228,7 +219,7 @@ class SettingsService extends ChangeNotifier {
   bool isArtistPhotoManual(String artistName) =>
       _prefs.getBool(_artistManualKey(artistName)) ?? false;
 
-  /// UTC ms when the local portrait was last set (for Yandex LWW).
+  /// UTC ms when the local portrait was last set (for pack merge LWW).
   int? artistPhotoUpdatedAtMs(String artistName) =>
       _prefs.getInt(_artistUpdatedKey(artistName));
 

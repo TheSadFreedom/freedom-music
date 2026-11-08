@@ -17,6 +17,7 @@ import '../models/playlist.dart';
 import '../models/playlist_mosaic.dart';
 import '../models/track.dart';
 import '../utils/lyrics_format.dart';
+import 'artist_photos_pack.dart';
 import 'backup_service.dart';
 import 'lyrics_service.dart';
 import 'metadata_writer.dart';
@@ -307,7 +308,7 @@ class LibraryService extends ChangeNotifier {
     if (warm) await warmSecondary();
   }
 
-  /// After Yandex artist-photo sync.
+  /// After artist-photo pack import.
   void notifyPhotosChanged() => notifyListeners();
 
   /// Rebuilds Корзина/Новинки membership, meta playlists and cover mosaics.
@@ -1719,6 +1720,22 @@ class LibraryService extends ChangeNotifier {
     final result = await _backup.importFromFile(sourcePath);
     await reload();
     notifyListeners();
+    return result;
+  }
+
+  Future<ArtistPhotosPackResult> exportArtistPhotosPack(String destPath) {
+    return ArtistPhotosPack(
+      paths: _paths,
+      settings: _settings,
+    ).exportToFile(destPath);
+  }
+
+  Future<ArtistPhotosPackResult> importArtistPhotosPack(String sourcePath) async {
+    final result = await ArtistPhotosPack(
+      paths: _paths,
+      settings: _settings,
+    ).importFromFile(sourcePath);
+    notifyPhotosChanged();
     return result;
   }
 }

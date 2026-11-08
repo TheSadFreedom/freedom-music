@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -40,7 +41,8 @@ extension on _SettingsCategory {
     _SettingsCategory.library => 'Локальные пути и обновление каталога.',
     _SettingsCategory.cloud =>
       'Что уходит на Яндекс.Диск. Тумблеры только на этом устройстве.',
-    _SettingsCategory.data => 'Локальные счётчики прослушиваний.',
+    _SettingsCategory.data =>
+      'Счётчики прослушиваний и пакет фото артистов.',
     _SettingsCategory.activity => 'Прогресс скана и журнал заполнения.',
   };
 
@@ -190,6 +192,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {}
     if (!mounted) return;
     setState(() => _driveMessage = sync.message ?? 'Вы вышли из облака');
+  }
+
+  Future<void> _exportArtistPhotos(LibraryService library) async {
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Экспорт фото артистов',
+      fileName: 'fm_artist_photos.zip',
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+    );
+    if (path == null || path.isEmpty) return;
+    final dest = path.toLowerCase().endsWith('.zip') ? path : '$path.zip';
+
+    setState(() {
+      _busyBackup = true;
+      _backupMessage = null;
+    });
+    try {
+      final result = await library.exportArtistPhotosPack(dest);
+      if (!mounted) return;
+      setState(() => _backupMessage = result.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _backupMessage = 'Ошибка экспорта: $e');
+    } finally {
+      if (mounted) setState(() => _busyBackup = false);
+    }
+  }
+
+  Future<void> _importArtistPhotos(LibraryService library) async {
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Импорт фото артистов',
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      withData: false,
+    );
+    final files = picked?.files;
+    if (files == null || files.isEmpty) return;
+    final path = files.first.path;
+    if (path == null || path.isEmpty) return;
+
+    setState(() {
+      _busyBackup = true;
+      _backupMessage = null;
+    });
+    try {
+      final result = await library.importArtistPhotosPack(path);
+      if (!mounted) return;
+      setState(() => _backupMessage = result.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _backupMessage = 'Ошибка импорта: $e');
+    } finally {
+      if (mounted) setState(() => _busyBackup = false);
+    }
   }
 
   Future<void> _clearPlayCounts(LibraryService library) async {
@@ -451,14 +507,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               await library.reload();
                             },
                     ),
-                    _SettingSwitch(
-                      title: 'Фотографии артистов',
-                      subtitle: 'Портреты на карточках артистов.',
-                      value: context.select<SettingsService, bool>(
-                        (s) => s.syncArtistPhotos,
-                      ),
-                      onChanged: busy ? null : settings.setSyncArtistPhotos,
-                    ),
                   ],
                 ),
                 if (sync.busy) ...[
@@ -478,6 +526,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _Group(
                   children: [
+                    _SettingAction(
+                      icon: const UploadGlyph(),
+                      title: 'Экспорт фото артистов',
+                      description:
+                          'ZIP-пакет портретов для переноса на другое устройство.',
+                      onPressed:
+                          busy ? null : () => _exportArtistPhotos(library),
+                    ),
+                    _SettingAction(
+                      icon: const DownloadGlyph(),
+                      title: 'Импорт фото артистов',
+                      description:
+                          'Слить пакет с локальными (новые и более свежие).',
+                      onPressed:
+                          busy ? null : () => _importArtistPhotos(library),
+                    ),
                     _SettingAction(
                       icon: const RestartGlyph(),
                       title: 'Сбросить',

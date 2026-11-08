@@ -9,7 +9,6 @@ import '../models/track.dart';
 import '../services/library_service.dart';
 import '../services/settings_service.dart';
 import 'cloud_auth_session.dart';
-import 'artist_photos_sync.dart';
 import 'cloud_playlist_sync.dart';
 import 'sync_engine.dart';
 import 'sync_event.dart';
@@ -175,8 +174,6 @@ class SyncService extends ChangeNotifier {
 
       var cloudUp = 0;
       var cloudDown = 0;
-      var photosUp = 0;
-      var photosDown = 0;
       final library = _library;
       if (library != null && _settings.syncCloudPlaylist) {
         final dirty =
@@ -218,26 +215,6 @@ class SyncService extends ChangeNotifier {
         _cloudDirty = false;
       }
 
-      if (library != null && _settings.syncArtistPhotos) {
-        final photoSync = ArtistPhotosSync(
-          paths: library.paths,
-          settings: _settings,
-        );
-        final photoResult = await photoSync.run(
-          cloud,
-          onProgress: (msg) {
-            _message = msg;
-            notifyListeners();
-          },
-        );
-        photosUp = photoResult.uploaded;
-        photosDown = photoResult.downloaded;
-        if (photoResult.changed) {
-          _libraryNeedsReload = true;
-          library.notifyPhotosChanged();
-        }
-      }
-
       _lastSyncAt = DateTime.now();
       await _db.setSyncMeta(
         'last_sync_at',
@@ -250,14 +227,11 @@ class SyncService extends ChangeNotifier {
       final cloudPart = (cloudUp > 0 || cloudDown > 0)
           ? ', облако ↑$cloudUp ↓$cloudDown'
           : '';
-      final photosPart = (photosUp > 0 || photosDown > 0)
-          ? ', фото ↑$photosUp ↓$photosDown'
-          : '';
       _message =
           'Готово: ↑${result.uploaded} ↓${result.downloaded} '
           'применено ${result.applied}'
           '${result.countsMerged > 0 ? ', счётчики +${result.countsMerged}' : ''}'
-          '$cloudPart$photosPart';
+          '$cloudPart';
     } catch (e) {
       _message = 'Ошибка синка: $e';
     } finally {
