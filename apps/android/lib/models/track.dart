@@ -23,6 +23,7 @@ class Track {
     this.coverPath,
     this.trashedAt,
     this.addedAt,
+    this.verified = false,
     this.filePaths = const [],
   });
 
@@ -57,6 +58,9 @@ class Track {
 
   /// When the track first appeared in the library (scan).
   final DateTime? addedAt;
+
+  /// Manual «проверенный» mark from the metadata editor (library DB only).
+  final bool verified;
   final List<String> filePaths;
 
   bool get isTrashed => trashedAt != null;
@@ -141,6 +145,7 @@ class Track {
     Object? coverPath = _unset,
     Object? trashedAt = _unset,
     Object? addedAt = _unset,
+    bool? verified,
     List<String>? filePaths,
   }) {
     return Track(
@@ -175,6 +180,7 @@ class Track {
           ? this.trashedAt
           : trashedAt as DateTime?,
       addedAt: identical(addedAt, _unset) ? this.addedAt : addedAt as DateTime?,
+      verified: verified ?? this.verified,
       filePaths: filePaths ?? this.filePaths,
     );
   }

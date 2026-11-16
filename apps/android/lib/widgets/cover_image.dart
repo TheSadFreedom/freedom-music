@@ -13,11 +13,12 @@ Image fileCover(
 }) {
   final dpr = MediaQuery.devicePixelRatioOf(context);
   final px = (logicalSize * dpr).round().clamp(48, 640);
+  // Only one cache dimension — both would force a square decode and squash
+  // non-square artist portraits before BoxFit.cover can crop.
   return Image.file(
     File(path),
     fit: fit,
     cacheWidth: px,
-    cacheHeight: px,
     filterQuality: filterQuality,
     gaplessPlayback: true,
     errorBuilder: errorBuilder,

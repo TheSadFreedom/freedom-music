@@ -1175,8 +1175,8 @@ class LibraryService extends ChangeNotifier {
   Future<void> addListenMs(String trackKey, int ms) =>
       _db.addListenMs(trackKey, ms);
 
-  /// Если в файле нет текста — ищет в сети и показывает в сессии.
-  /// Не пишет в теги и не пишет в БД (в отличие от job «Ищем текст»).
+  /// Если в файле нет текста — ищет в сети.
+  /// LRCLIB → пишет в теги и БД; Genius → только сессия.
   Future<Track?> ensureRemoteLyrics(Track track) async {
     final key = track.trackKey;
     if (hasLyrics(track.lyrics)) return null;
@@ -1193,13 +1193,30 @@ class LibraryService extends ChangeNotifier {
     _lyricsFetching.add(key);
     notifyListeners();
     try {
-      final text = await _lyrics.fetchForTrack(track);
-      if (text == null || !hasLyrics(text)) {
+      final hit = await _lyrics.fetchForTrack(track);
+      if (hit == null || !hasLyrics(hit.text)) {
         _lyricsMisses.add(key);
         return null;
       }
-      _lyricsSession[key] = text;
       _lyricsMisses.remove(key);
+
+      if (hit.fromLrclib) {
+        final current = trackByKey(key) ?? track;
+        if (hasLyrics(current.lyrics)) return current;
+        try {
+          final draft = MetadataDraft.fromTrack(current);
+          draft.lyrics = hit.text;
+          final updated = await saveTrackMetadata(current, draft);
+          _lyricsSession.remove(key);
+          return updated;
+        } catch (e, st) {
+          debugPrint('lyrics write $key: $e\n$st');
+          _lyricsSession[key] = hit.text;
+          return _withSessionLyrics(trackByKey(key) ?? track);
+        }
+      }
+
+      _lyricsSession[key] = hit.text;
       return _withSessionLyrics(trackByKey(key) ?? track);
     } catch (e, st) {
       debugPrint('lyrics lookup $key: $e\n$st');
