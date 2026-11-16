@@ -144,7 +144,6 @@ class _ReleaseMetadataEditorScreenState
       final value = track.trackTotal;
       if (value != null && value > total) total = value;
     }
-    if (total < 1) total = release.tracks.length;
     return total < 1 ? null : total;
   }
 

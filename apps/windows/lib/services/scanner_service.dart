@@ -196,6 +196,7 @@ class ScannerService {
           trackKey: buildTrackKey(
             artist: artist,
             title: track.title,
+            album: track.album,
             note: track.note,
           ),
           artist: artist,
@@ -217,8 +218,11 @@ class ScannerService {
     try {
       final meta = readMetadata(file, getImage: true);
       final title = _pickTitle(meta, file.path);
-      // Keep the tag as written. Artist merges only group the artist card.
-      final artist = storedArtists(meta.artist);
+      // MP3: package prefers TPE2 as artist and leaves albumArtist null —
+      // read lead performer / album artist from the raw tag when needed.
+      final artist = storedArtists(
+        readFileLeadArtist(file.path) ?? meta.artist,
+      );
       final rawAlbum = meta.album?.trim();
       final album = isBlankMeta(rawAlbum) ? 'Unknown' : rawAlbum!;
       final genreRaw = meta.genres.isNotEmpty
@@ -228,16 +232,23 @@ class ScannerService {
                 .join(', ')
           : '';
       final genre = genreRaw.isEmpty ? 'Unknown' : genreRaw;
-      final albumArtist = storedPeople(meta.albumArtist);
+      final albumArtist = storedPeople(meta.albumArtist) ??
+          readFileAlbumArtist(file.path);
       final producer = readFileProducer(file.path);
       final note = readFileNote(file.path);
       final lyrics = meta.lyrics?.trim();
       final durationMs = meta.duration?.inMilliseconds;
       final year = meta.year?.year;
       final trackNumber = meta.trackNumber;
+      final trackTotal = meta.trackTotal;
       final discNumber = meta.discNumber;
 
-      final trackKey = buildTrackKey(artist: artist, title: title, note: note);
+      final trackKey = buildTrackKey(
+        artist: artist,
+        title: title,
+        album: album,
+        note: note,
+      );
 
       String? coverPath;
       final pictures = meta.pictures;
@@ -257,6 +268,7 @@ class ScannerService {
         lyrics: (lyrics == null || lyrics.isEmpty) ? null : lyrics,
         year: year,
         trackNumber: trackNumber,
+        trackTotal: trackTotal,
         discNumber: discNumber,
         durationMs: durationMs,
         coverPath: coverPath,
@@ -265,7 +277,11 @@ class ScannerService {
     } catch (_) {
       // Fallback: filename-only track so library still shows something.
       final title = p.basenameWithoutExtension(file.path);
-      final trackKey = buildTrackKey(artist: 'Unknown', title: title);
+      final trackKey = buildTrackKey(
+        artist: 'Unknown',
+        title: title,
+        album: 'Unknown',
+      );
       return Track(
         trackKey: trackKey,
         title: title,
@@ -275,6 +291,28 @@ class ScannerService {
         filePaths: [file.path],
       );
     }
+  }
+
+  /// Re-read every indexed file and rebind `track_key` (splits wrongly merged
+  /// files after identity rules change).
+  Future<int> rebindFileIdentities() async {
+    final mtimes = await _db.getFileMtimes();
+    var rebound = 0;
+    for (final entry in mtimes.entries) {
+      final path = entry.key;
+      final file = File(path);
+      if (!await file.exists()) continue;
+      final track = await _readTrack(file);
+      if (track == null) continue;
+      await _db.upsertTrackFile(
+        track: track,
+        filePath: path,
+        mtimeMs: entry.value,
+      );
+      rebound++;
+    }
+    await _db.deleteTracksWithoutFiles();
+    return rebound;
   }
 
   Future<String?> _saveCover(String trackKey, Picture picture) async {

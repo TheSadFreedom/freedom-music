@@ -11,14 +11,15 @@ ReleaseKind releaseKindFromTotal(int total) {
   return ReleaseKind.album;
 }
 
-/// Highest track-total tag on the release. Without that tag, the file count.
+/// Highest track-total tag on the release (not how many files are in the library).
+/// Without a valid tag → single.
 ReleaseKind releaseKindForTracks(List<Track> tracks) {
   var total = 0;
   for (final track in tracks) {
     final value = track.trackTotal;
     if (value != null && value > total) total = value;
   }
-  if (total < 1) total = tracks.length;
+  if (total < 1) return ReleaseKind.single;
   return releaseKindFromTotal(total);
 }
 

@@ -1,14 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
 import '../data/track_key.dart';
 import '../navigation/app_navigator.dart';
 import '../models/track.dart';
+import '../services/genius_api_client.dart';
 import '../services/library_service.dart';
 import '../services/metadata_writer.dart';
 import '../services/player_service.dart';
@@ -62,7 +65,11 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
   bool _replacing = false;
+  bool _verified = false;
+  bool _geniusAvailable = false;
+  bool _geniusLoading = false;
   String? _error;
+  GeniusApiHit? _geniusHit;
 
   Uint8List? _newCoverBytes;
   String? _newCoverMime;
@@ -72,6 +79,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   void initState() {
     super.initState();
     _track = widget.track;
+    _verified = _track.verified;
     final t = _track;
     _title = TextEditingController(text: metaFieldText(t.title));
     _note = TextEditingController(text: metaFieldText(t.note));
@@ -79,11 +87,13 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
       text: metaFieldText(storedArtists(t.artist)),
     );
     _album = TextEditingController(text: metaFieldText(t.album));
-    _albumArtist = TextEditingController(
-      text: metaFieldText(storedPeople(t.albumArtist)),
-    );
-    final storedProducer = metaFieldText(t.producer);
     final path = t.primaryPath;
+    final storedAlbumArtist = metaFieldText(storedPeople(t.albumArtist));
+    final fileAlbumArtist = storedAlbumArtist.isNotEmpty
+        ? storedAlbumArtist
+        : (path == null ? '' : metaFieldText(readFileAlbumArtist(path)));
+    _albumArtist = TextEditingController(text: fileAlbumArtist);
+    final storedProducer = metaFieldText(t.producer);
     final fileProducer = storedProducer.isNotEmpty
         ? storedProducer
         : (path == null ? '' : metaFieldText(readFileProducer(path)));
@@ -98,10 +108,11 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
           ? ''
           : t.trackNumber.toString(),
     );
+    final trackTotal = (t.trackTotal != null && t.trackTotal! >= 1)
+        ? t.trackTotal
+        : (path == null ? null : readFileTrackTotal(path));
     _trackTotal = TextEditingController(
-      text: (t.trackTotal == null || t.trackTotal! < 1)
-          ? ''
-          : t.trackTotal.toString(),
+      text: (trackTotal == null || trackTotal < 1) ? '' : trackTotal.toString(),
     );
     _discNumber = TextEditingController(
       text: (t.discNumber == null || t.discNumber! < 1)
@@ -109,6 +120,129 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
           : t.discNumber.toString(),
     );
     _lyrics = TextEditingController(text: t.lyrics ?? '');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadGeniusAvailability());
+    });
+  }
+
+  Future<void> _loadGeniusAvailability() async {
+    final library = context.read<LibraryService>();
+    final store = GeniusTokenStore(library.paths);
+    final has = await store.hasToken();
+    if (!mounted) return;
+    setState(() => _geniusAvailable = has);
+  }
+
+  Future<GeniusApiHit?> _ensureGeniusHit() async {
+    if (_geniusHit != null) return _geniusHit;
+    final library = context.read<LibraryService>();
+    final token = await GeniusTokenStore(library.paths).readToken();
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _geniusAvailable = false;
+        _error = 'Нет Genius-токена.';
+      });
+      return null;
+    }
+    setState(() {
+      _geniusLoading = true;
+      _error = null;
+    });
+    try {
+      final client = GeniusApiClient(accessToken: token);
+      final artist = _artist.text.trim().isEmpty
+          ? _track.displayArtist
+          : _artist.text.trim();
+      final title = _title.text.trim().isEmpty
+          ? _track.displayTitle
+          : _title.text.trim();
+      final note = _note.text.trim().isEmpty
+          ? _track.displayNote
+          : _note.text.trim();
+      final hit = await client.lookup(
+        artist: artist,
+        title: title,
+        note: note,
+      );
+      if (!mounted) return null;
+      if (hit == null) {
+        setState(() {
+          _geniusLoading = false;
+          _error = 'На Genius ничего не найдено для «$artist - $title».';
+        });
+        return null;
+      }
+      setState(() {
+        _geniusHit = hit;
+        _geniusLoading = false;
+      });
+      return hit;
+    } catch (e) {
+      if (!mounted) return null;
+      setState(() {
+        _geniusLoading = false;
+        _error = 'Genius: $e';
+      });
+      return null;
+    }
+  }
+
+  Future<void> _fillGeniusField(String field) async {
+    if (_saving || _replacing || _geniusLoading) return;
+    final hit = await _ensureGeniusHit();
+    if (hit == null || !mounted) return;
+    setState(() {
+      switch (field) {
+        case 'title':
+          if (hit.title != null) _title.text = hit.title!;
+        case 'artist':
+          if (hit.artist != null) _artist.text = hit.artist!;
+        case 'album':
+          if (hit.album != null) _album.text = hit.album!;
+        case 'albumArtist':
+          if (hit.albumArtist != null) _albumArtist.text = hit.albumArtist!;
+        case 'producer':
+          if (hit.producer != null) _producer.text = hit.producer!;
+        case 'genre':
+          if (hit.genre != null) _genre.text = hit.genre!;
+        case 'year':
+          if (hit.year != null) _year.text = '${hit.year}';
+        case 'trackNumber':
+          if (hit.trackNumber != null) {
+            _trackNumber.text = '${hit.trackNumber}';
+          }
+        case 'trackTotal':
+          if (hit.trackTotal != null) _trackTotal.text = '${hit.trackTotal}';
+        case 'discNumber':
+          if (hit.discNumber != null) _discNumber.text = '${hit.discNumber}';
+        case 'cover':
+          unawaited(_fillGeniusCover(hit.coverUrl));
+      }
+    });
+  }
+
+  Future<void> _fillGeniusCover(String? url) async {
+    if (url == null || url.isEmpty) return;
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 30));
+      if (!mounted ||
+          response.statusCode < 200 ||
+          response.statusCode >= 300 ||
+          response.bodyBytes.isEmpty) {
+        return;
+      }
+      setState(() {
+        _newCoverBytes = response.bodyBytes;
+        _newCoverMime =
+            url.toLowerCase().contains('.png') ? 'image/png' : 'image/jpeg';
+        _removeCover = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Не удалось скачать обложку: $e');
+    }
   }
 
   @override
@@ -245,6 +379,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
       trackTotal: parsePos(_trackTotal.text),
       discNumber: parsePos(_discNumber.text),
       lyrics: _lyrics.text,
+      verified: _verified,
       coverBytes: _newCoverBytes,
       coverMime: _newCoverMime,
       removeCover: _removeCover,
@@ -409,24 +544,55 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                           onPick: _pickCover,
                           onPaste: _pasteCover,
                           onClear: _clearCover,
+                          onGenius: _geniusAvailable && !busy && !_geniusLoading
+                              ? () => _fillGeniusField('cover')
+                              : null,
                         ),
                         const SizedBox(height: 28),
+                        _VerifiedToggle(
+                          value: _verified,
+                          enabled: !busy,
+                          onChanged: (v) => setState(() => _verified = v),
+                        ),
+                        const SizedBox(height: 22),
                         _sectionLabel('Основные'),
                         const SizedBox(height: 12),
-                        _field(_title, 'Название', requiredField: true),
+                        _field(
+                          _title,
+                          'Название',
+                          requiredField: true,
+                          onGenius: () => _fillGeniusField('title'),
+                        ),
                         _field(_note, 'Заметка'),
                         _field(
                           _artist,
                           'Артист (запятая или feat.)',
                           requiredField: true,
+                          onGenius: () => _fillGeniusField('artist'),
                         ),
-                        _field(_album, 'Альбом'),
-                        _field(_albumArtist, 'Артист альбома'),
-                        _field(_producer, 'Продюсер'),
+                        _field(
+                          _album,
+                          'Альбом',
+                          onGenius: () => _fillGeniusField('album'),
+                        ),
+                        _field(
+                          _albumArtist,
+                          'Артист альбома',
+                          onGenius: () => _fillGeniusField('albumArtist'),
+                        ),
+                        _field(
+                          _producer,
+                          'Продюсер',
+                          onGenius: () => _fillGeniusField('producer'),
+                        ),
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final wide = constraints.maxWidth >= 480;
-                            final genre = _field(_genre, 'Жанр');
+                            final genre = _field(
+                              _genre,
+                              'Жанр',
+                              onGenius: () => _fillGeniusField('genre'),
+                            );
                             final year = _field(
                               _year,
                               'Год',
@@ -434,6 +600,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                               inputFormatters: [
                                 FilteringTextInputFormatter.digitsOnly,
                               ],
+                              onGenius: () => _fillGeniusField('year'),
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) return null;
                                 final n = int.tryParse(v);
@@ -466,6 +633,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                               inputFormatters: [
                                 FilteringTextInputFormatter.digitsOnly,
                               ],
+                              onGenius: () => _fillGeniusField('trackNumber'),
                             );
                             final trackTotal = _field(
                               _trackTotal,
@@ -474,6 +642,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                               inputFormatters: [
                                 FilteringTextInputFormatter.digitsOnly,
                               ],
+                              onGenius: () => _fillGeniusField('trackTotal'),
                             );
                             final disc = _field(
                               _discNumber,
@@ -482,6 +651,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                               inputFormatters: [
                                 FilteringTextInputFormatter.digitsOnly,
                               ],
+                              onGenius: () => _fillGeniusField('discNumber'),
                             );
                             if (!wide) {
                               return Column(
@@ -571,7 +741,9 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
     TextInputType? keyboard,
     List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
+    VoidCallback? onGenius,
   }) {
+    final showGenius = _geniusAvailable && onGenius != null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextFormField(
@@ -584,7 +756,23 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
           fontWeight: FontWeight.w500,
         ),
         cursorColor: _kYellow,
-        decoration: _decoration(label),
+        decoration: _decoration(label).copyWith(
+          suffixIcon: showGenius
+              ? IconButton(
+                  tooltip: _geniusLoading ? 'Genius…' : 'Из Genius',
+                  onPressed: (_saving || _replacing || _geniusLoading)
+                      ? null
+                      : onGenius,
+                  icon: Icon(
+                    Icons.auto_fix_high_rounded,
+                    color: _geniusLoading
+                        ? AppTheme.paperMuted
+                        : AppTheme.mossBright,
+                    size: 20,
+                  ),
+                )
+              : null,
+        ),
         validator:
             validator ??
             (requiredField
@@ -651,6 +839,7 @@ class _CoverSection extends StatelessWidget {
     required this.onPick,
     required this.onPaste,
     required this.onClear,
+    this.onGenius,
   });
 
   final String? existingPath;
@@ -659,6 +848,7 @@ class _CoverSection extends StatelessWidget {
   final VoidCallback onPick;
   final VoidCallback onPaste;
   final VoidCallback onClear;
+  final VoidCallback? onGenius;
 
   @override
   Widget build(BuildContext context) {
@@ -737,6 +927,15 @@ class _CoverSection extends StatelessWidget {
                     icon: Icons.content_paste_outlined,
                     label: 'Вставить из буфера',
                   ),
+                  if (onGenius != null) ...[
+                    const SizedBox(height: 10),
+                    _PillAction(
+                      onPressed: onGenius,
+                      filled: false,
+                      icon: Icons.auto_fix_high_rounded,
+                      label: 'Из Genius',
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   _PillAction(
                     onPressed: hasCover || removed ? onClear : null,
@@ -761,6 +960,75 @@ class _CoverSection extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _VerifiedToggle extends StatelessWidget {
+  const _VerifiedToggle({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.inkLift.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: enabled ? () => onChanged(!value) : null,
+        borderRadius: BorderRadius.circular(14),
+        mouseCursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Проверенный трек',
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paper,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Метка в библиотеке и плейлисте «Проверенные». В теги и путь файла не пишется.',
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paperMuted,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Checkbox(
+                value: value,
+                onChanged: enabled
+                    ? (v) => onChanged(v ?? false)
+                    : null,
+                activeColor: _kYellow,
+                checkColor: AppTheme.ink,
+                side: BorderSide(
+                  color: AppTheme.paper.withValues(alpha: 0.35),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

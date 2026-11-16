@@ -25,6 +25,7 @@ class MetadataDraft {
     this.trackTotal,
     this.discNumber,
     this.lyrics,
+    this.verified = false,
     this.coverBytes,
     this.coverMime,
     this.removeCover = false,
@@ -44,6 +45,7 @@ class MetadataDraft {
       trackTotal: track.trackTotal,
       discNumber: track.discNumber,
       lyrics: track.lyrics,
+      verified: track.verified,
     );
   }
 
@@ -59,6 +61,9 @@ class MetadataDraft {
   int? trackTotal;
   int? discNumber;
   String? lyrics;
+
+  /// Library-only mark; not written into audio tags.
+  bool verified;
 
   /// New cover to embed (null = keep existing unless [removeCover]).
   Uint8List? coverBytes;
@@ -171,7 +176,12 @@ class MetadataWriter {
     final noteText = draft.note?.trim() ?? '';
     final note = isBlankMeta(noteText) ? null : noteText;
     final lyrics = draft.lyrics?.trim();
-    final newKey = buildTrackKey(artist: artist, title: title, note: note);
+    final newKey = buildTrackKey(
+      artist: artist,
+      title: title,
+      album: album,
+      note: note,
+    );
 
     String? coverPath = track.coverPath;
     if (draft.removeCover) {
@@ -213,6 +223,7 @@ class MetadataWriter {
       discNumber: draft.discNumber,
       lyrics: (lyrics == null || lyrics.isEmpty) ? null : lyrics,
       coverPath: coverPath,
+      verified: draft.verified,
     );
   }
 
@@ -225,6 +236,120 @@ class MetadataWriter {
       if (keepPaths.any((keep) => p.equals(keep, path))) continue;
       await _deleteWithRetries(File(path));
     }
+  }
+
+  /// Rename in place to `Artist - Title.ext` or `Artist - Title Note.ext`.
+  /// Paths outside [musicDir] are left unchanged. Does not move between dirs.
+  /// Never invents `_timestamp` names: if the target is taken by another file,
+  /// the source keeps its current name; if the target is already ours, the
+  /// redundant source is dropped.
+  static Future<Track> renameFilesToMetadata(
+    Track track, {
+    required String musicDir,
+  }) async {
+    if (track.filePaths.isEmpty) return track;
+
+    final musicRoot = p.normalize(musicDir);
+    final stem = fileNameFromMetadata(
+      artist: track.displayArtist,
+      title: track.displayTitle,
+      note: track.displayNote,
+    );
+
+    final nextPaths = <String>[];
+    var changed = false;
+
+    bool isOurs(String candidate) {
+      if (nextPaths.any((x) => p.equals(x, candidate))) return true;
+      return track.filePaths.any((x) => p.equals(p.normalize(x), candidate));
+    }
+
+    for (final raw in track.filePaths) {
+      final path = p.normalize(raw);
+      final underMusic =
+          p.isWithin(musicRoot, path) || p.equals(path, musicRoot);
+      if (!underMusic) {
+        if (!nextPaths.any((x) => p.equals(x, path))) nextPaths.add(path);
+        continue;
+      }
+
+      final targetDir = p.dirname(path);
+      final ext = p.extension(path);
+      final dest = p.normalize(p.join(targetDir, '$stem$ext'));
+
+      if (p.equals(dest, path)) {
+        if (!nextPaths.any((x) => p.equals(x, path))) nextPaths.add(path);
+        continue;
+      }
+
+      final src = File(path);
+      if (!await src.exists()) {
+        if (!nextPaths.any((x) => p.equals(x, path))) nextPaths.add(path);
+        continue;
+      }
+
+      if (await File(dest).exists()) {
+        if (isOurs(dest)) {
+          // Same track already owns the desired name — drop the duplicate.
+          await _deleteWithRetries(src);
+          if (!nextPaths.any((x) => p.equals(x, dest))) nextPaths.add(dest);
+          changed = true;
+        } else {
+          // Target taken by another file — keep current name, no stamped copy.
+          if (!nextPaths.any((x) => p.equals(x, path))) nextPaths.add(path);
+        }
+        continue;
+      }
+
+      try {
+        await src.rename(dest);
+      } catch (_) {
+        try {
+          await src.copy(dest);
+          await _deleteWithRetries(src);
+        } catch (_) {
+          if (!nextPaths.any((x) => p.equals(x, path))) nextPaths.add(path);
+          continue;
+        }
+      }
+      if (!nextPaths.any((x) => p.equals(x, dest))) nextPaths.add(dest);
+      changed = true;
+    }
+
+    if (!changed) return track;
+    return track.copyWith(filePaths: nextPaths);
+  }
+
+  /// Safe basename (no extension): `Artist - Title` or `Artist - Title Note`.
+  static String fileNameFromMetadata({
+    required String artist,
+    required String title,
+    String? note,
+  }) {
+    final a = artist.trim();
+    final t = title.trim();
+    final n = note?.trim() ?? '';
+    final hasNote = n.isNotEmpty && !isBlankMeta(n);
+    final base = a.isEmpty
+        ? (t.isEmpty ? 'Unknown' : t)
+        : (t.isEmpty ? a : '$a - $t');
+    final raw = hasNote ? '$base $n' : base;
+    return sanitizeFileName(raw);
+  }
+
+  /// Strip characters illegal on Windows and trim trailing dots/spaces.
+  static String sanitizeFileName(String raw) {
+    var s = raw
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    s = s.replaceAll(RegExp(r'[. ]+$'), '');
+    if (s.isEmpty) return 'Unknown';
+    if (s.length > 180) {
+      s = s.substring(0, 180).replaceAll(RegExp(r'[. ]+$'), '');
+      if (s.isEmpty) return 'Unknown';
+    }
+    return s;
   }
 
   /// Кладёт [picked] на место primary (то же имя) или рядом при другом расширении.
@@ -433,7 +558,12 @@ class MetadataWriter {
       );
     }
 
-    final newKey = buildTrackKey(artist: artist, title: title, note: note);
+    final newKey = buildTrackKey(
+      artist: artist,
+      title: title,
+      album: album,
+      note: note,
+    );
 
     String? coverPath = track.coverPath;
     if (draft.removeCover) {
@@ -476,6 +606,7 @@ class MetadataWriter {
       discNumber: discNumber,
       lyrics: (lyrics == null || lyrics.isEmpty) ? null : lyrics,
       coverPath: coverPath,
+      verified: draft.verified,
     );
   }
 
@@ -517,7 +648,8 @@ class MetadataWriter {
         // ID3: empty genres alone is not enough — contentType (TCON) must
         // be cleared or the writer writes the old genre back.
         final blankGenre = isBlankMeta(genre);
-        tag.setGenres(blankGenre ? <String>[] : [genre.trim()]);
+        final genreParts = splitGenres(genre);
+        tag.setGenres(blankGenre || genreParts.isEmpty ? <String>[] : genreParts);
         if (tag is Mp3Metadata && blankGenre) {
           tag.contentType = null;
         }
@@ -528,17 +660,23 @@ class MetadataWriter {
         tag.setLyrics(lyrics);
 
         if (tag is Mp3Metadata) {
+          // TPE2 — album artist (audio_metadata_reader does not expose setAlbumArtist).
           tag.bandOrOrchestra = albumArtist;
         } else if (tag is VorbisMetadata) {
+          tag.albumArtist = (albumArtist == null || albumArtist.isEmpty)
+              ? <String>[]
+              : <String>[albumArtist];
           tag.producer = (producer == null || producer.isEmpty)
               ? []
               : [producer];
+          // Same place Mp3tag uses: Vorbis COMMENT (not a custom NOTE).
           final label = note?.trim() ?? '';
-          if (label.isEmpty) {
-            tag.unknowns.remove('NOTE');
-          } else {
-            tag.unknowns['NOTE'] = label;
-          }
+          tag.unknowns.remove('NOTE');
+          tag.comment = isBlankMeta(label) ? <String>[] : <String>[label];
+        } else if (tag is ApeMetadata) {
+          tag.albumArtist = albumArtist;
+          final label = note?.trim() ?? '';
+          tag.comment = isBlankMeta(label) ? null : label;
         }
 
         if (removeCover) {
@@ -557,8 +695,10 @@ class MetadataWriter {
           tag.setPictures(keptPictures);
         }
       });
-      // The ID3 writer drops TXXX frames, so producer and note are appended after.
+      // Package writes ID3v2.4 and drops TXXX/COMM/TIPL — restore Mp3tag fields,
+      // then rewrite the tag as ID3v2.3 (IPLS + COMM).
       writeMp3SideFrames(path, producer: producer, note: note);
+      rewriteId3AsV23(path);
     });
   }
 
@@ -621,13 +761,29 @@ List<Picture> _picturesOf(Object tag) {
   };
 }
 
-/// Note stored as an ID3 `TXXX:NOTE` frame or a Vorbis `NOTE` tag.
-String? readFileNote(String path) {
+/// Track total from the file tag (TRCK `n/total`, Vorbis TRACKTOTAL, …).
+int? readFileTrackTotal(String path) {
+  try {
+    final meta = readMetadata(File(path), getImage: false);
+    final n = meta.trackTotal;
+    if (n == null || n < 1) return null;
+    return n;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Album artist from the file tag.
+///
+/// `readMetadata()` for MP3 maps TPE2 into [AudioMetadata.artist] and leaves
+/// [AudioMetadata.albumArtist] null — read TPE2 / ALBUMARTIST directly.
+String? readFileAlbumArtist(String path) {
   try {
     final tag = readAllMetadata(File(path), getImage: false);
     return switch (tag) {
-      Mp3Metadata meta => _customText(meta, 'note'),
-      VorbisMetadata meta => _vorbisNote(meta),
+      Mp3Metadata meta => storedPeople(meta.bandOrOrchestra),
+      VorbisMetadata meta => storedPeople(_firstNonEmpty(meta.albumArtist)),
+      ApeMetadata meta => storedPeople(meta.albumArtist),
       _ => null,
     };
   } catch (_) {
@@ -635,13 +791,65 @@ String? readFileNote(String path) {
   }
 }
 
+/// Track artist (TPE1 / ARTIST), not album artist.
+/// Returns null when the lead artist frame is missing so callers can fall back.
+String? readFileLeadArtist(String path) {
+  try {
+    final tag = readAllMetadata(File(path), getImage: false);
+    return switch (tag) {
+      Mp3Metadata meta => storedPeople(
+          meta.leadPerformer ?? meta.originalArtist,
+        ),
+      VorbisMetadata meta => storedPeople(_firstNonEmpty(meta.artist)),
+      ApeMetadata meta => storedPeople(meta.artist),
+      _ => null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Note from `TXXX:NOTE` / Vorbis `NOTE`, with fallback to Comment (`COMM`).
+/// Mp3tag and many taggers store the label in Comment, not TXXX:NOTE.
+String? readFileNote(String path) {
+  try {
+    final tag = readAllMetadata(File(path), getImage: false);
+    return switch (tag) {
+      Mp3Metadata meta => _noteFromMp3(meta),
+      VorbisMetadata meta => _vorbisNote(meta),
+      ApeMetadata meta => _nonBlankText(meta.comment),
+      RiffMetadata meta => _nonBlankText(meta.comment),
+      _ => null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _noteFromMp3(Mp3Metadata meta) {
+  final txxx = _customText(meta, 'note');
+  if (txxx != null) return txxx;
+  for (final comment in meta.comments) {
+    final text = _nonBlankText(comment.text);
+    if (text != null) return text;
+  }
+  return null;
+}
+
 String? _vorbisNote(VorbisMetadata meta) {
   for (final entry in meta.unknowns.entries) {
     if (entry.key.trim().toLowerCase() != 'note') continue;
-    final value = entry.value.replaceAll('\u0000', '').trim();
-    if (!isBlankMeta(value)) return value;
+    final value = _nonBlankText(entry.value);
+    if (value != null) return value;
   }
-  return null;
+  return _firstNonEmpty(meta.comment);
+}
+
+String? _nonBlankText(String? raw) {
+  if (raw == null) return null;
+  final value = raw.replaceAll('\u0000', '').trim();
+  if (isBlankMeta(value)) return null;
+  return value;
 }
 
 String? _customText(Mp3Metadata meta, String key) {
@@ -653,7 +861,7 @@ String? _customText(Mp3Metadata meta, String key) {
   return null;
 }
 
-/// Producer stored as an ID3 `TXXX:PRODUCER` frame or a Vorbis `PRODUCER` tag.
+/// Producer from ID3 TIPL/IPLS (Mp3tag), legacy `TXXX:PRODUCER`, or Vorbis.
 String? readFileProducer(String path) {
   try {
     final tag = readAllMetadata(File(path), getImage: false);
@@ -698,7 +906,8 @@ String? _firstNonEmpty(List<String> values) {
   return null;
 }
 
-/// Rewrites `TXXX:PRODUCER` and `TXXX:NOTE` on an ID3v2.4 tag.
+/// Appends Mp3tag-compatible Comment (`COMM`) and producer (`TIPL`) on ID3v2.4.
+/// Drops legacy `TXXX:NOTE` / `TXXX:PRODUCER` and any old COMM/TIPL/IPLS.
 void writeMp3SideFrames(String path, {String? producer, String? note}) {
   final file = File(path);
   final bytes = file.readAsBytesSync();
@@ -729,7 +938,11 @@ void writeMp3SideFrames(String path, {String? producer, String? note}) {
       final description = id == 'TXXX'
           ? _txxxDescription(bytes, offset + 10, size)?.toLowerCase()
           : null;
-      final drop = description == 'producer' || description == 'note';
+      final drop = id == 'COMM' ||
+          id == 'TIPL' ||
+          id == 'IPLS' ||
+          description == 'producer' ||
+          description == 'note';
       if (!drop) kept.add(bytes.sublist(offset, frameEnd));
       offset = frameEnd;
     }
@@ -740,11 +953,12 @@ void writeMp3SideFrames(String path, {String? producer, String? note}) {
   final frames = BytesBuilder(copy: false)..add(kept.toBytes());
   final producerValue = producer?.trim() ?? '';
   if (!isBlankMeta(producerValue)) {
-    frames.add(_txxxFrame('PRODUCER', producerValue));
+    final tip = _tiplFrame(producerValue);
+    if (tip != null) frames.add(tip);
   }
   final noteValue = note?.trim() ?? '';
   if (!isBlankMeta(noteValue)) {
-    frames.add(_txxxFrame('NOTE', noteValue));
+    frames.add(_commFrame(noteValue));
   }
   final body = frames.toBytes();
   final header = Uint8List.fromList(bytes.sublist(0, 10));
@@ -752,6 +966,62 @@ void writeMp3SideFrames(String path, {String? producer, String? note}) {
   final out = BytesBuilder(copy: false)
     ..add(header)
     ..add(body)
+    ..add(bytes.sublist(tagEnd));
+  file.writeAsBytesSync(out.takeBytes());
+}
+
+/// Rewrites a leading ID3v2.4 tag as ID3v2.3 (Mp3tag default): non-syncsafe
+/// frame sizes, `TIPL` → `IPLS`. No-op if the file is not ID3v2.4.
+void rewriteId3AsV23(String path) {
+  final file = File(path);
+  final bytes = file.readAsBytesSync();
+  if (bytes.length < 10 ||
+      bytes[0] != 0x49 ||
+      bytes[1] != 0x44 ||
+      bytes[2] != 0x33 ||
+      bytes[3] != 4) {
+    return;
+  }
+  // Extended header — leave untouched (package writer does not emit one).
+  if ((bytes[5] & 0x40) != 0) return;
+
+  final payloadSize = _readSyncSafe(bytes, 6);
+  final tagEnd = 10 + payloadSize;
+  if (tagEnd <= 10 || tagEnd > bytes.length) return;
+
+  final body = BytesBuilder(copy: false);
+  var offset = 10;
+  while (offset + 10 <= tagEnd) {
+    final id = String.fromCharCodes(bytes.sublist(offset, offset + 4));
+    if (id.codeUnitAt(0) == 0) break;
+    final size = _readSyncSafe(bytes, offset + 4);
+    final flags = bytes.sublist(offset + 8, offset + 10);
+    final frameEnd = offset + 10 + size;
+    if (size < 0 || frameEnd > tagEnd) break;
+    final data = bytes.sublist(offset + 10, frameEnd);
+    final outId = id == 'TIPL' ? 'IPLS' : id;
+    body
+      ..add(utf8.encode(outId))
+      ..add(_u32Be(data.length))
+      ..add(flags)
+      ..add(data);
+    offset = frameEnd;
+  }
+
+  final payload = body.toBytes();
+  final header = Uint8List(10);
+  header[0] = 0x49; // I
+  header[1] = 0x44; // D
+  header[2] = 0x33; // 3
+  header[3] = 3; // v2.3
+  header[4] = 0;
+  header[5] = 0;
+  // ID3v2.3 tag size is still sync-safe in the header.
+  _writeSyncSafe(header, 6, payload.length);
+
+  final out = BytesBuilder(copy: false)
+    ..add(header)
+    ..add(payload)
     ..add(bytes.sublist(tagEnd));
   file.writeAsBytesSync(out.takeBytes());
 }
@@ -796,18 +1066,46 @@ Uint8List _syncSafe(int value) {
   ]);
 }
 
-Uint8List _txxxFrame(String description, String value) {
+Uint8List _u32Be(int value) {
+  return Uint8List.fromList([
+    (value >> 24) & 0xFF,
+    (value >> 16) & 0xFF,
+    (value >> 8) & 0xFF,
+    value & 0xFF,
+  ]);
+}
+
+Uint8List _id3v24TextFrame(String id, Uint8List payload) {
+  return (BytesBuilder(copy: false)
+        ..add(utf8.encode(id))
+        ..add(_syncSafe(payload.length))
+        ..addByte(0)
+        ..addByte(0)
+        ..add(payload))
+      .takeBytes();
+}
+
+/// ID3v2.4 `TIPL`: UTF-8 null-separated `producer` / name pairs (Mp3tag).
+Uint8List? _tiplFrame(String producer) {
+  final names = producerNames(producer);
+  if (names.isEmpty) return null;
+  final payload = BytesBuilder(copy: false)..addByte(3); // UTF-8
+  for (final name in names) {
+    payload
+      ..add(utf8.encode('producer'))
+      ..addByte(0)
+      ..add(utf8.encode(name))
+      ..addByte(0);
+  }
+  return _id3v24TextFrame('TIPL', payload.takeBytes());
+}
+
+/// ID3v2.4 `COMM`: UTF-8, language `eng`, empty short description (Mp3tag).
+Uint8List _commFrame(String value) {
   final payload = BytesBuilder(copy: false)
     ..addByte(3)
-    ..add(utf8.encode(description))
+    ..add(utf8.encode('eng'))
     ..addByte(0)
     ..add(utf8.encode(value));
-  final data = payload.takeBytes();
-  return (BytesBuilder(copy: false)
-        ..add(utf8.encode('TXXX'))
-        ..add(_syncSafe(data.length))
-        ..addByte(0)
-        ..addByte(0)
-        ..add(data))
-      .takeBytes();
+  return _id3v24TextFrame('COMM', payload.takeBytes());
 }
