@@ -224,7 +224,21 @@ class PlayerService extends ChangeNotifier {
       }
       return;
     }
-    await next();
+    _beginAdvanceGuard();
+    try {
+      // Crossfade may already be playing the next track — commit, don't reopen.
+      if (await _commitCrossfadeIfActive()) return;
+      await next();
+    } finally {
+      _switchingTrack = false;
+    }
+  }
+
+  void _beginAdvanceGuard() {
+    _switchingTrack = true;
+    _heardNearEnd = false;
+    _ignoreCompleteUntil =
+        DateTime.now().add(const Duration(milliseconds: 1200));
   }
 
   final LibraryService _library;
@@ -236,6 +250,8 @@ class PlayerService extends ChangeNotifier {
 
   bool _usingA = true;
   bool _crossfading = false;
+  /// Queue index already opened on secondary during crossfade.
+  int? _crossfadeTargetIndex;
   bool _heardNearEnd = false;
   Timer? _persistTimer;
   bool _engineArmed = false;
@@ -661,24 +677,39 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> next() async {
     if (_queue.isEmpty) return;
-    await _cancelCrossfade();
-    final nextIndex = _index + 1;
-    if (nextIndex >= _queue.length) {
-      if (_repeat == PlayRepeatMode.off && !_shuffle) {
-        await _primary.stop();
-        _primaryHasMedia = false;
-        notifyListeners();
+    _beginAdvanceGuard();
+    try {
+      final nextIndex = _index + 1;
+      if (nextIndex >= _queue.length) {
+        if (_repeat == PlayRepeatMode.off && !_shuffle) {
+          await _cancelCrossfade();
+          await _primary.stop();
+          _primaryHasMedia = false;
+          notifyListeners();
+          return;
+        }
+        if (_crossfading && _crossfadeTargetIndex == 0) {
+          if (await _commitCrossfadeIfActive(expectedIndex: 0)) return;
+        }
+        await _cancelCrossfade();
+        if (_shuffle) {
+          final tracks = List<Track>.from(_queue)..shuffle(_random);
+          await _setQueue(tracks, startIndex: 0, autoplay: true);
+          return;
+        }
+        await _playIndex(0);
         return;
       }
-      if (_shuffle) {
-        final tracks = List<Track>.from(_queue)..shuffle(_random);
-        await _setQueue(tracks, startIndex: 0, autoplay: true);
-        return;
+      if (_crossfading && _crossfadeTargetIndex == nextIndex) {
+        if (await _commitCrossfadeIfActive(expectedIndex: nextIndex)) {
+          return;
+        }
       }
-      await _playIndex(0);
-      return;
+      await _cancelCrossfade();
+      await _playIndex(nextIndex);
+    } finally {
+      _switchingTrack = false;
     }
-    await _playIndex(nextIndex);
   }
 
   Future<void> previous() async {
@@ -1040,18 +1071,21 @@ class PlayerService extends ChangeNotifier {
     if (path == null || !_fileExists(path)) return;
 
     _crossfading = true;
+    _crossfadeTargetIndex = nextIndex;
     final fadeMs = remaining.inMilliseconds.clamp(
       200,
       _settings.crossfadeSeconds * 1000,
     );
     final outgoing = _primary;
     final incoming = _secondary;
+    var opened = false;
 
     try {
       await incoming.stop();
       await _applyEqualizerFilter();
       await incoming.setVolume(0);
       await incoming.open(await _mediaFor(path), play: true);
+      opened = true;
 
       final gain = _mediaKitVolume(_volume);
       final steps = max(8, fadeMs ~/ 40);
@@ -1065,37 +1099,104 @@ class PlayerService extends ChangeNotifier {
       }
       if (!_crossfading) return;
 
-      await outgoing.stop();
-      await outgoing.setVolume(gain);
-      _usingA = !_usingA;
-      _primaryHasMedia = true;
-      _index = nextIndex;
-      _resetListenAccounting();
-      _position = Duration.zero;
-      _duration = null;
-      _startPositionPoll();
-      unawaited(_pollPosition());
-      _maybeFetchLyrics(_queue[nextIndex]);
-      _schedulePersist();
+      await _finishCrossfadeSwap(
+        outgoing: outgoing,
+        incoming: incoming,
+        nextIndex: nextIndex,
+      );
     } catch (e) {
       debugPrint('Crossfade failed: $e');
+      final target = _crossfadeTargetIndex;
       _crossfading = false;
+      _crossfadeTargetIndex = null;
+      if (opened && target == nextIndex) {
+        try {
+          await _finishCrossfadeSwap(
+            outgoing: outgoing,
+            incoming: incoming,
+            nextIndex: nextIndex,
+          );
+          return;
+        } catch (_) {}
+      }
       await _playIndex(nextIndex);
       return;
     }
-    _crossfading = false;
     notifyListeners();
   }
 
-  Future<void> _cancelCrossfade() async {
-    if (!_crossfading) return;
+  /// Promote secondary (already playing next) to primary without reopen.
+  Future<void> _finishCrossfadeSwap({
+    required Player outgoing,
+    required Player incoming,
+    required int nextIndex,
+  }) async {
+    final gain = _mediaKitVolume(_volume);
+    final incomingPos = incoming.state.position;
+    final incomingDur = incoming.state.duration;
+    try {
+      await outgoing.stop();
+    } catch (_) {}
+    try {
+      await outgoing.setVolume(gain);
+      await incoming.setVolume(gain);
+    } catch (_) {}
+    _usingA = !_usingA;
+    _primaryHasMedia = true;
+    _index = nextIndex;
     _crossfading = false;
+    _crossfadeTargetIndex = null;
+    _resetListenAccounting();
+    _position = incomingPos;
+    _duration = (incomingDur != null && incomingDur > Duration.zero)
+        ? incomingDur
+        : null;
+    _ignoreCompleteUntil =
+        DateTime.now().add(const Duration(milliseconds: 1200));
+    _heardNearEnd = false;
+    _startPositionPoll();
+    unawaited(_pollPosition());
+    if (nextIndex >= 0 &&
+        nextIndex < _queue.length &&
+        !_isPreviewTrack(_queue[nextIndex])) {
+      _maybeFetchLyrics(_queue[nextIndex]);
+    }
+    _schedulePersist();
+    notifyListeners();
+  }
+
+  /// If a crossfade already opened [expectedIndex], finish the swap in place.
+  Future<bool> _commitCrossfadeIfActive({int? expectedIndex}) async {
+    if (!_crossfading) return false;
+    final target = _crossfadeTargetIndex;
+    if (target == null) return false;
+    if (expectedIndex != null && target != expectedIndex) return false;
+    final outgoing = _primary;
+    final incoming = _secondary;
+    try {
+      await _finishCrossfadeSwap(
+        outgoing: outgoing,
+        incoming: incoming,
+        nextIndex: target,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('commit crossfade failed: $e');
+      await _cancelCrossfade();
+      return false;
+    }
+  }
+
+  Future<void> _cancelCrossfade() async {
+    if (!_crossfading && _crossfadeTargetIndex == null) return;
     try {
       await _secondary.stop();
       final gain = _mediaKitVolume(_volume);
       await _secondary.setVolume(gain);
       await _primary.setVolume(gain);
     } catch (_) {}
+    _crossfading = false;
+    _crossfadeTargetIndex = null;
   }
 
   void _maybeCountPlay() {
