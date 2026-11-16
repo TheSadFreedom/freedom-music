@@ -114,6 +114,8 @@ abstract final class ModRpcMethods {
   static const playRemote = 'playRemote';
   static const pickLibraryTrack = 'pickLibraryTrack';
   static const replaceTrackAudio = 'replaceTrackAudio';
+  static const listTracks = 'listTracks';
+  static const applyTrackMetadata = 'applyTrackMetadata';
 }
 
 class HelloResult {
@@ -207,6 +209,142 @@ class PickedTrackResult {
   factory PickedTrackResult.fromJson(Object? raw) {
     final map = raw is Map ? Map<String, dynamic>.from(raw) : const {};
     return PickedTrackResult(
+      trackKey: '${map['trackKey'] ?? ''}',
+      title: '${map['title'] ?? ''}',
+      artist: '${map['artist'] ?? ''}',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'trackKey': trackKey,
+        'title': title,
+        'artist': artist,
+      };
+}
+
+/// Library track snapshot for metadata mods.
+class TrackListItem {
+  const TrackListItem({
+    required this.trackKey,
+    required this.title,
+    required this.artist,
+    required this.album,
+    this.albumArtist,
+    this.producer,
+    this.note,
+    this.genre = '',
+    this.year,
+    this.trackNumber,
+    this.trackTotal,
+    this.discNumber,
+    this.lyrics,
+    this.coverPath,
+    this.verified = false,
+  });
+
+  final String trackKey;
+  final String title;
+  final String artist;
+  final String album;
+  final String? albumArtist;
+  final String? producer;
+  final String? note;
+  final String genre;
+  final int? year;
+  final int? trackNumber;
+  final int? trackTotal;
+  final int? discNumber;
+  final String? lyrics;
+  final String? coverPath;
+  final bool verified;
+
+  factory TrackListItem.fromJson(Object? raw) {
+    final map = raw is Map ? Map<String, dynamic>.from(raw) : const {};
+    return TrackListItem(
+      trackKey: '${map['trackKey'] ?? ''}',
+      title: '${map['title'] ?? ''}',
+      artist: '${map['artist'] ?? ''}',
+      album: '${map['album'] ?? ''}',
+      albumArtist: _nullableString(map['albumArtist']),
+      producer: _nullableString(map['producer']),
+      note: _nullableString(map['note']),
+      genre: '${map['genre'] ?? ''}',
+      year: _asInt(map['year']),
+      trackNumber: _asInt(map['trackNumber']),
+      trackTotal: _asInt(map['trackTotal']),
+      discNumber: _asInt(map['discNumber']),
+      lyrics: _nullableString(map['lyrics']),
+      coverPath: _nullableString(map['coverPath']),
+      verified: map['verified'] == true,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'trackKey': trackKey,
+        'title': title,
+        'artist': artist,
+        'album': album,
+        if (albumArtist != null) 'albumArtist': albumArtist,
+        if (producer != null) 'producer': producer,
+        if (note != null) 'note': note,
+        'genre': genre,
+        if (year != null) 'year': year,
+        if (trackNumber != null) 'trackNumber': trackNumber,
+        if (trackTotal != null) 'trackTotal': trackTotal,
+        if (discNumber != null) 'discNumber': discNumber,
+        if (lyrics != null) 'lyrics': lyrics,
+        if (coverPath != null) 'coverPath': coverPath,
+        'verified': verified,
+      };
+
+  static String? _nullableString(Object? value) {
+    final s = '${value ?? ''}'.trim();
+    return s.isEmpty ? null : s;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('$value');
+  }
+}
+
+class TrackListResult {
+  const TrackListResult({required this.tracks});
+
+  final List<TrackListItem> tracks;
+
+  factory TrackListResult.fromJson(Object? raw) {
+    final map = raw is Map ? Map<String, dynamic>.from(raw) : const {};
+    final list = map['tracks'];
+    final tracks = <TrackListItem>[];
+    if (list is List) {
+      for (final item in list) {
+        tracks.add(TrackListItem.fromJson(item));
+      }
+    }
+    return TrackListResult(tracks: tracks);
+  }
+
+  Map<String, dynamic> toJson() => {
+        'tracks': [for (final t in tracks) t.toJson()],
+      };
+}
+
+class ApplyTrackMetadataResult {
+  const ApplyTrackMetadataResult({
+    required this.trackKey,
+    required this.title,
+    required this.artist,
+  });
+
+  final String trackKey;
+  final String title;
+  final String artist;
+
+  factory ApplyTrackMetadataResult.fromJson(Object? raw) {
+    final map = raw is Map ? Map<String, dynamic>.from(raw) : const {};
+    return ApplyTrackMetadataResult(
       trackKey: '${map['trackKey'] ?? ''}',
       title: '${map['title'] ?? ''}',
       artist: '${map['artist'] ?? ''}',
