@@ -523,6 +523,7 @@ class _SearchPanel extends StatelessWidget {
               child: _CompactHit(
                 title: track.displayTitle,
                 note: track.displayNote,
+                verified: track.verified,
                 detail: track.displayArtist,
                 leading: _CoverMark(path: track.coverPath, size: mark),
                 titleColor: PlayingTrack.titleColor(playing),
@@ -786,6 +787,7 @@ class _CompactHit extends StatelessWidget {
     this.leading,
     this.titleColor = AppTheme.paper,
     this.highlighted = false,
+    this.verified = false,
   });
 
   final String title;
@@ -794,6 +796,7 @@ class _CompactHit extends StatelessWidget {
   final Widget? leading;
   final Color titleColor;
   final bool highlighted;
+  final bool verified;
   final VoidCallback onTap;
 
   @override
@@ -813,6 +816,7 @@ class _CompactHit extends StatelessWidget {
                 child: TrackTitleLine(
                   title: title,
                   note: note,
+                  verified: verified,
                   style: GoogleFonts.figtree(
                     color: titleColor,
                     fontWeight: PlayingTrack.titleWeight(highlighted),
@@ -915,6 +919,11 @@ class _PlaylistMark extends StatelessWidget {
   Widget build(BuildContext context) {
     final (Color background, Color foreground) = switch (playlist.systemKind) {
       Playlist.kindNew => (const Color(0xFFFFDB4D), const Color(0xFF141414)),
+      Playlist.kindVerified => (AppTheme.lime, const Color(0xFF141414)),
+      Playlist.kindUnverified => (
+        const Color(0xFF2A3530),
+        AppTheme.paperMuted,
+      ),
       Playlist.kindIncomplete => (AppTheme.lime, const Color(0xFF141414)),
       Playlist.kindNoProducer => (AppTheme.mossBright, const Color(0xFF141414)),
       Playlist.kindMissingGenre => (

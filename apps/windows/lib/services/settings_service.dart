@@ -23,7 +23,7 @@ class SettingsService extends ChangeNotifier {
   static const _playbackShuffleKey = 'playback_shuffle';
   static const _playbackRepeatKey = 'playback_repeat';
   static const _artistTagsRestoredKey = 'artist_tags_restored_v1';
-  static const _trackKeysRemigratedKey = 'track_keys_remigrated_v1';
+  static const _trackKeysRemigratedKey = 'track_keys_remigrated_v2';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
   static const _artistPhotoUpdatedPrefix = 'artist_photo_updated_';
@@ -32,6 +32,7 @@ class SettingsService extends ChangeNotifier {
   static const _syncAliasesKey = 'sync_aliases';
   static const _syncPlaylistsKey = 'sync_playlists';
   static const _syncCloudPlaylistKey = 'sync_cloud_playlist';
+  static const _showVerifiedBadgesKey = 'show_verified_badges';
   static Future<SettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
     return SettingsService(prefs);
@@ -106,6 +107,15 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setSyncCloudPlaylist(bool value) async {
     await _prefs.setBool(_syncCloudPlaylistKey, value);
+    notifyListeners();
+  }
+
+  /// Yellow checkmarks on verified tracks / fully-verified artists.
+  bool get showVerifiedBadges =>
+      _prefs.getBool(_showVerifiedBadgesKey) ?? true;
+
+  Future<void> setShowVerifiedBadges(bool value) async {
+    await _prefs.setBool(_showVerifiedBadgesKey, value);
     notifyListeners();
   }
 

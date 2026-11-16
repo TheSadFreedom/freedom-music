@@ -15,6 +15,8 @@ class Playlist {
   static const kindTrash = 'trash';
   static const kindNew = 'new';
   static const kindCloud = 'cloud';
+  static const kindVerified = 'verified';
+  static const kindUnverified = 'unverified';
   static const kindIncomplete = 'incomplete';
   static const kindNoProducer = 'no_producer';
   static const kindMissingGenre = 'missing_genre';
@@ -22,6 +24,8 @@ class Playlist {
   static const kindMetadataReady = 'metadata_ready';
 
   static const cloudName = 'Облако';
+  static const verifiedName = 'Проверенные';
+  static const unverifiedName = 'Непроверенные';
   static const missingMetadataName = 'Нехватает метаданных';
   static const missingProducerName = 'Нехватает Prod.';
   static const missingGenreName = 'Нехватает жанра';
@@ -31,6 +35,10 @@ class Playlist {
   static const cloudDescription =
       'До 100 треков. MP3 синхронизируются через Яндекс.Диск между устройствами. '
       'Удаление из плейлиста не удаляет трек из библиотеки.';
+  static const verifiedDescription =
+      'Треки, отмеченные как проверенные в редакторе метаданных.';
+  static const unverifiedDescription =
+      'Треки без отметки «Проверенный».';
   static const missingMetadataDescription =
       'Нет обложки, названия, артиста, альбома, артиста альбома, года, номера, числа треков или диска.';
   static const missingProducerDescription = 'Нет продюсера.';
@@ -61,6 +69,8 @@ class Playlist {
   bool get isTrash => systemKind == kindTrash;
   bool get isNew => systemKind == kindNew;
   bool get isCloud => systemKind == kindCloud;
+  bool get isVerified => systemKind == kindVerified;
+  bool get isUnverified => systemKind == kindUnverified;
   bool get isIncomplete => systemKind == kindIncomplete;
   bool get isNoProducer => systemKind == kindNoProducer;
   bool get isMissingGenre => systemKind == kindMissingGenre;

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
+import '../services/library_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import 'playing_track.dart';
@@ -40,14 +42,16 @@ class TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final playing = PlayingTrack.watch(context, track.trackKey);
+    final live = context.watch<LibraryService>().resolveTrack(track);
+    final playing = PlayingTrack.watch(context, live.trackKey);
     return TrackContextMenu(
       actions: enableMetadataEdit || enableTrash
           ? standardTrackActions(
               context,
-              track,
+              live,
               metadata: enableMetadataEdit,
-              trash: enableTrash,
+              replace: enableMetadataEdit,
+              deleteForever: enableTrash,
             )
           : const [],
       child: Material(
@@ -60,23 +64,24 @@ class TrackTile extends StatelessWidget {
           onLongPress:
               onLongPress ??
               (enableMetadataEdit
-                  ? () => openMetadataEditor(context, track)
+                  ? () => openMetadataEditor(context, live)
                   : null),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                TrackCoverPlay(path: track.coverPath, onPlay: onTap ?? () {}),
+                TrackCoverPlay(path: live.coverPath, onPlay: onTap ?? () {}),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TrackTitleLine(
-                        title: track.displayTitle,
-                        note: track.displayNote,
+                        title: live.displayTitle,
+                        note: live.displayNote,
+                        verified: live.verified,
                         onTap: enableLibraryNavigation
-                            ? () => openAlbumForTrack(context, track)
+                            ? () => openAlbumForTrack(context, live)
                             : null,
                         style: GoogleFonts.figtree(
                           color: PlayingTrack.titleColor(playing),
@@ -97,7 +102,7 @@ class TrackTile extends StatelessWidget {
                         )
                       else if (!enableLibraryNavigation)
                         Text(
-                          track.displayArtist,
+                          live.displayArtist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.figtree(
@@ -110,9 +115,9 @@ class TrackTile extends StatelessWidget {
                           cursor: SystemMouseCursors.click,
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTap: () => openArtistFromTrack(context, track),
+                            onTap: () => openArtistFromTrack(context, live),
                             child: Text(
-                              track.displayArtist,
+                              live.displayArtist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.figtree(
@@ -131,7 +136,7 @@ class TrackTile extends StatelessWidget {
                   SizedBox(
                     width: 44,
                     child: Text(
-                      formatTrackDuration(track.durationMs),
+                      formatTrackDuration(live.durationMs),
                       textAlign: TextAlign.right,
                       style: GoogleFonts.figtree(
                         color: AppTheme.paperMuted,

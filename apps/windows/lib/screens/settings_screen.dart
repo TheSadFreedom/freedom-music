@@ -325,6 +325,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final crossfade = context.select<SettingsService, int>(
       (s) => s.crossfadeSeconds,
     );
+    final showVerifiedBadges = context.select<SettingsService, bool>(
+      (s) => s.showVerifiedBadges,
+    );
 
     return ListenableBuilder(
       listenable: Listenable.merge([library, library.jobUi, sync]),
@@ -392,6 +395,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _PathRow(label: 'music', value: library.paths.musicDir),
                     _PathRow(label: 'База', value: library.paths.databasePath),
                     _PathRow(label: 'Моды', value: mods.discovery.modsDir),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const _SubLabel('Отображение'),
+                const SizedBox(height: 10),
+                _Group(
+                  children: [
+                    _SettingSwitch(
+                      title: 'Галочки Verified',
+                      subtitle:
+                          'У проверенных треков и у артистов, где все треки проверены.',
+                      value: showVerifiedBadges,
+                      onChanged: settings.setShowVerifiedBadges,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 18),

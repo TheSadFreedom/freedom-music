@@ -30,6 +30,10 @@ class SystemPlaylistIcon extends StatelessWidget {
         return const FiberNewGlyph();
       case Playlist.kindCloud:
         return const CloudOutlinedGlyph();
+      case Playlist.kindVerified:
+        return const VerifiedCheckGlyph();
+      case Playlist.kindUnverified:
+        return const UnverifiedGlyph();
       case Playlist.kindIncomplete:
         return const ArticleGlyph();
       case Playlist.kindNoProducer:

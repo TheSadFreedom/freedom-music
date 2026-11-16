@@ -187,6 +187,7 @@ class _TrackConfirmDialog extends StatelessWidget {
                           TrackTitleLine(
                             title: track.displayTitle,
                             note: track.displayNote,
+                            verified: track.verified,
                             style: GoogleFonts.figtree(
                               color: AppTheme.paper,
                               fontWeight: FontWeight.w700,

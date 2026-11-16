@@ -708,6 +708,7 @@ class _TrackInfo extends StatelessWidget {
                       child: TrackTitleLine(
                         title: track.displayTitle,
                         note: track.displayNote,
+                        verified: track.verified,
                         onTap: () => openAlbumForTrack(context, track),
                         style: GoogleFonts.figtree(
                           color: AppTheme.paper,
@@ -1002,7 +1003,7 @@ class _TrashBtn extends StatelessWidget {
     return _IconBtn(
       icon: Icons.delete_outline_rounded,
       tooltip: '',
-      onPressed: track == null ? null : () => moveTrackToTrash(context, track),
+      onPressed: track == null ? null : () => deleteTrackForever(context, track),
       enabled: track != null,
     );
   }
@@ -1403,6 +1404,7 @@ class _QueueWindow extends StatelessWidget {
                                                 ? t.displayTitle
                                                 : '${t.displayArtist} - ${t.displayTitle}',
                                             note: t.displayNote,
+                                            verified: t.verified,
                                             style: GoogleFonts.figtree(
                                               color: current
                                                   ? _kYellow

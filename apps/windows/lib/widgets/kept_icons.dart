@@ -182,3 +182,21 @@ class CloudOutlinedGlyph extends StatelessWidget {
     return const Icon(Icons.cloud_outlined);
   }
 }
+
+class VerifiedCheckGlyph extends StatelessWidget {
+  const VerifiedCheckGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.check_rounded);
+  }
+}
+
+class UnverifiedGlyph extends StatelessWidget {
+  const UnverifiedGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.radio_button_unchecked_rounded);
+  }
+}

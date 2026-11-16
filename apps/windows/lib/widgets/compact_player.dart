@@ -26,15 +26,15 @@ class CompactPlayer extends StatefulWidget {
 }
 
 class _CompactPlayerState extends State<CompactPlayer> {
-  /// When set, the bar shows an inline trash confirmation (dialogs clip here).
-  Track? _trashConfirm;
+  /// When set, the bar shows an inline delete confirmation (dialogs clip here).
+  Track? _deleteConfirm;
 
-  Future<void> _commitTrash(Track track) async {
+  Future<void> _commitDelete(Track track) async {
     final library = context.read<LibraryService>();
     final player = context.read<PlayerService>();
-    await library.moveToTrash(track.trackKey);
+    await library.deleteTrackPermanently(track.trackKey);
     await player.removeTrackFromQueue(track.trackKey);
-    if (mounted) setState(() => _trashConfirm = null);
+    if (mounted) setState(() => _deleteConfirm = null);
   }
 
   @override
@@ -46,16 +46,16 @@ class _CompactPlayerState extends State<CompactPlayer> {
     final shell = context.watch<DesktopShell>();
 
     // Drop confirm if the track changed or disappeared.
-    if (_trashConfirm != null &&
-        (track == null || track.trackKey != _trashConfirm!.trackKey)) {
+    if (_deleteConfirm != null &&
+        (track == null || track.trackKey != _deleteConfirm!.trackKey)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _trashConfirm = null);
+        if (mounted) setState(() => _deleteConfirm = null);
       });
     }
     final confirming =
-        _trashConfirm != null &&
+        _deleteConfirm != null &&
         track != null &&
-        track.trackKey == _trashConfirm!.trackKey;
+        track.trackKey == _deleteConfirm!.trackKey;
 
     return Material(
       color: Colors.transparent,
@@ -77,8 +77,8 @@ class _CompactPlayerState extends State<CompactPlayer> {
                   child: confirming
                       ? _CompactTrashConfirm(
                           track: track,
-                          onCancel: () => setState(() => _trashConfirm = null),
-                          onConfirm: () => _commitTrash(track),
+                          onCancel: () => setState(() => _deleteConfirm = null),
+                          onConfirm: () => _commitDelete(track),
                           onExpand: shell.exitCompactMode,
                         )
                       : _CompactPlaybackRow(
@@ -87,7 +87,7 @@ class _CompactPlayerState extends State<CompactPlayer> {
                           shell: shell,
                           onTrash: track == null
                               ? null
-                              : () => setState(() => _trashConfirm = track),
+                              : () => setState(() => _deleteConfirm = track),
                         ),
                 ),
               ),
@@ -143,6 +143,7 @@ class _CompactPlaybackRow extends StatelessWidget {
                     TrackTitleLine(
                       title: track!.displayTitle,
                       note: track!.displayNote,
+                      verified: track!.verified,
                       style: GoogleFonts.syne(
                         color: AppTheme.paper,
                         fontWeight: FontWeight.w700,
@@ -216,7 +217,7 @@ class _CompactTrashConfirm extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'В корзину?',
+                'Удалить с диска?',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.syne(
@@ -231,6 +232,7 @@ class _CompactTrashConfirm extends StatelessWidget {
               TrackTitleLine(
                 title: track.displayTitle,
                 note: track.displayNote,
+                verified: track.verified,
                 style: GoogleFonts.figtree(
                   color: AppTheme.paperMuted,
                   fontSize: 11.5,
@@ -250,9 +252,9 @@ class _CompactTrashConfirm extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         _ConfirmPill(
-          label: 'В корзину',
-          background: _kYellow,
-          foreground: Colors.black,
+          label: 'Удалить',
+          background: const Color(0xFFFF8A80),
+          foreground: const Color(0xFF2A1214),
           onPressed: onConfirm,
         ),
         const SizedBox(width: 4),
@@ -524,7 +526,6 @@ class _Cover extends StatelessWidget {
         File(path!),
         fit: BoxFit.cover,
         cacheWidth: 112,
-        cacheHeight: 112,
         filterQuality: FilterQuality.medium,
       );
     }

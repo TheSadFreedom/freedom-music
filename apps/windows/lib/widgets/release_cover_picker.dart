@@ -186,6 +186,7 @@ class _CoverChoice extends StatelessWidget {
           TrackTitleLine(
             title: title,
             note: track.displayNote,
+            verified: track.verified,
             maxLines: 2,
             style: GoogleFonts.figtree(
               color: selected ? AppTheme.lime : AppTheme.paper,

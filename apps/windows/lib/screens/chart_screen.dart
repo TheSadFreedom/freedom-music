@@ -15,8 +15,6 @@ import '../services/player_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
-import '../utils/playlist_actions.dart';
-import '../utils/trash_actions.dart';
 import '../widgets/playing_track.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_meta_links.dart';
@@ -601,24 +599,11 @@ class _ChartTrackRow extends StatelessWidget {
     final playing = PlayingTrack.watch(context, track.trackKey);
 
     return TrackContextMenu(
-      actions: [
-        TrackMenuAction(
-          icon: Icons.edit_outlined,
-          label: 'Метаданные',
-          onSelected: onEdit,
-        ),
-        TrackMenuAction(
-          icon: Icons.queue_music_rounded,
-          label: 'В плейлист',
-          onSelected: () => addTrackToPlaylist(context, track),
-        ),
-        TrackMenuAction(
-          icon: Icons.delete_outline_rounded,
-          label: 'В корзину',
-          destructive: true,
-          onSelected: () => moveTrackToTrash(context, track),
-        ),
-      ],
+      actions: standardTrackActions(
+        context,
+        track,
+        onMetadata: onEdit,
+      ),
       child: Material(
       color: PlayingTrack.surface(playing),
       child: InkWell(

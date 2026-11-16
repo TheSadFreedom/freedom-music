@@ -292,10 +292,13 @@ class BackupService {
 
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
+    await _db.ensureVerifiedPlaylist();
+    await _db.ensureUnverifiedPlaylist();
     await _db.ensureCloudPlaylist();
     await _db.removeMetaCatalogPlaylists();
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
+    await _db.syncVerifiedPlaylistsMembership();
 
     final settingsRaw = json['settings'];
     if (settingsRaw is Map) {

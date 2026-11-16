@@ -6,6 +6,7 @@ import '../models/track.dart';
 import '../screens/metadata_editor_screen.dart';
 import '../theme/app_theme.dart';
 import '../utils/playlist_actions.dart';
+import '../utils/track_file_actions.dart';
 import '../utils/trash_actions.dart';
 
 class TrackMenuAction {
@@ -22,14 +23,15 @@ class TrackMenuAction {
   final bool destructive;
 }
 
-/// Metadata, playlist, and trash actions used by every track row.
+/// Metadata, playlist, replace and delete actions used by every track row.
 List<TrackMenuAction> standardTrackActions(
   BuildContext context,
   Track track, {
   bool metadata = true,
+  bool replace = true,
   bool playlist = true,
   bool copyTitle = false,
-  bool trash = true,
+  bool deleteForever = true,
   VoidCallback? onMetadata,
 }) {
   return [
@@ -38,6 +40,12 @@ List<TrackMenuAction> standardTrackActions(
         icon: Icons.edit_outlined,
         label: 'Метаданные',
         onSelected: onMetadata ?? () => openMetadataEditor(context, track),
+      ),
+    if (replace)
+      TrackMenuAction(
+        icon: Icons.swap_horiz_rounded,
+        label: 'Заменить',
+        onSelected: () => replaceTrackAudio(context, track),
       ),
     if (playlist)
       TrackMenuAction(
@@ -53,12 +61,12 @@ List<TrackMenuAction> standardTrackActions(
           ClipboardData(text: '${track.displayArtist} - ${track.displayTitle}'),
         ),
       ),
-    if (trash)
+    if (deleteForever)
       TrackMenuAction(
-        icon: Icons.delete_outline_rounded,
-        label: 'В корзину',
+        icon: Icons.delete_forever_rounded,
+        label: 'Удалить',
         destructive: true,
-        onSelected: () => moveTrackToTrash(context, track),
+        onSelected: () => deleteTrackForever(context, track),
       ),
   ];
 }
