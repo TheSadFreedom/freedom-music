@@ -282,6 +282,9 @@ class SyncService extends ChangeNotifier {
           if (identity != null) ...{
             'artist': identity.artist,
             'title': identity.title,
+            if (identity.album != null &&
+                identity.album!.trim().isNotEmpty)
+              'album': identity.album,
             if (identity.note != null && identity.note!.trim().isNotEmpty)
               'note': identity.note,
           },

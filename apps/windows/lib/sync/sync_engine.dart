@@ -277,6 +277,8 @@ class SyncEngine {
             if (identities[e.trackKey] case final id?) ...{
               'artist': id.artist,
               'title': id.title,
+              if (id.album != null && id.album!.trim().isNotEmpty)
+                'album': id.album,
               if (id.note != null && id.note!.trim().isNotEmpty) 'note': id.note,
             },
           },
@@ -305,6 +307,8 @@ class SyncEngine {
                 'count': r.count,
                 if (r.artist != null) 'artist': r.artist,
                 if (r.title != null) 'title': r.title,
+                if (r.album != null && r.album!.trim().isNotEmpty)
+                  'album': r.album,
                 if (r.note != null && r.note!.trim().isNotEmpty) 'note': r.note,
               },
           ],
@@ -502,7 +506,7 @@ class SyncEngine {
     for (final t in rows) {
       keys.add(t.trackKey);
       artistByKey[t.trackKey] = t.artist;
-      final full = _fullIdentityKey(t.artist, t.title, t.note);
+      final full = _fullIdentityKey(t.artist, t.title, t.album, t.note);
       byFull[full] = t.trackKey;
       final soft = _softIdentityKey(t.artist, t.title);
       (bySoft[soft] ??= []).add(t.trackKey);
@@ -534,24 +538,36 @@ class SyncEngine {
 
     if (isLocal(remoteKey)) return remoteKey;
 
+    final album = payload['album'] as String?;
+
     if (artist != null && title != null) {
-      final built = buildTrackKey(artist: artist, title: title, note: note);
+      final built = buildTrackKey(
+        artist: artist,
+        title: title,
+        album: album,
+        note: note,
+      );
       if (isLocal(built)) return built;
 
-      final full = _fullIdentityKey(artist, title, note);
+      final full = _fullIdentityKey(artist, title, album, note);
       final byFull = _byFullIdentity?[full];
       if (isLocal(byFull)) return byFull;
 
-      // Same artists+title, note may differ between devices — still one track.
+      // Same artists+title, album/note may differ between devices — soft match.
       final soft = _softIdentityKey(artist, title);
       final candidates = _byArtistTitle?[soft];
       if (candidates != null) {
         final local = [for (final k in candidates) if (isLocal(k)) k];
         if (local.isNotEmpty) {
           if (local.length == 1) return local.first;
-          final want = buildTrackKey(artist: artist, title: title, note: note);
+          final want = buildTrackKey(
+            artist: artist,
+            title: title,
+            album: album,
+            note: note,
+          );
           if (local.contains(want)) return want;
-          final blank = buildTrackKey(artist: artist, title: title);
+          final blank = buildTrackKey(artist: artist, title: title, album: album);
           if (local.contains(blank)) return blank;
           return local.first;
         }
@@ -586,14 +602,18 @@ class SyncEngine {
     return null;
   }
 
-  static String _fullIdentityKey(String artist, String title, String? note) {
-    final parts = [
+  static String _fullIdentityKey(
+    String artist,
+    String title,
+    String? album,
+    String? note,
+  ) {
+    return [
       normalizeArtistsForKey(artist),
       normalizeTag(title),
-    ];
-    final label = metaFieldText(note);
-    if (label.isNotEmpty) parts.add(normalizeTag(label));
-    return parts.join('|');
+      normalizeTag(metaFieldText(album)),
+      normalizeTag(metaFieldText(note)),
+    ].join('|');
   }
 
   static String _softIdentityKey(String artist, String title) =>
