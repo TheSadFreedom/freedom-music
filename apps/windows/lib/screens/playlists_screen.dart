@@ -26,6 +26,7 @@ import '../widgets/app_bottom_sheet.dart';
 import '../widgets/kept_icons.dart';
 import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_tile.dart';
+import 'folder_tracks_screen.dart';
 import 'genres_screen.dart';
 
 const _yellow = Color(0xFFFFDB4D);
@@ -39,6 +40,7 @@ class PlaylistsScreen extends StatelessWidget {
     final system = _systemPlaylists(library.playlists);
     final mine = library.playlists.where((p) => !p.isSystem).toList();
     final genres = library.tracksByGenre();
+    final folders = library.tracksByFolder();
     return Stack(
       children: [
         Column(
@@ -124,6 +126,25 @@ class PlaylistsScreen extends StatelessWidget {
                   ],
                 ),
               ],
+              if (folders.isNotEmpty) ...[
+                _SectionTitle(
+                  title: 'По папкам',
+                  onTap: () => _openGrid(
+                    context,
+                    title: 'По папкам',
+                    items: [
+                      for (final entry in folders.entries)
+                        _itemForFolder(context, entry.key, entry.value),
+                    ],
+                  ),
+                ),
+                _CoverCarousel(
+                  items: [
+                    for (final entry in folders.entries)
+                      _itemForFolder(context, entry.key, entry.value),
+                  ],
+                ),
+              ],
                 ],
               ),
             ),
@@ -146,8 +167,10 @@ class PlaylistsScreen extends StatelessWidget {
         int rank(Playlist p) {
           if (p.isNew) return 0;
           if (p.isCloud) return 1;
-          if (p.isTrash) return 2;
-          return 3;
+          if (p.isVerified) return 2;
+          if (p.isUnverified) return 3;
+          if (p.isTrash) return 4;
+          return 5;
         }
 
         return rank(a).compareTo(rank(b));
@@ -214,6 +237,31 @@ class PlaylistsScreen extends StatelessWidget {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => GenreDetailScreen(genre: name),
+          ),
+        );
+      },
+    );
+  }
+
+  _CoverItem _itemForFolder(
+    BuildContext context,
+    String name,
+    List<Track> tracks,
+  ) {
+    final mosaic = context.read<LibraryService>().folderMosaic(name);
+    final single = mosaic.length == 1 ? mosaic.first : null;
+    return _CoverItem(
+      title: name,
+      kind: 'Папка',
+      meta: _tracksLabel(tracks.length),
+      coverPath: single,
+      mosaic: mosaic.length > 1 ? mosaic : const [],
+      icon: Icons.folder_outlined,
+      iconColor: AppTheme.lime,
+      onOpen: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => FolderTracksScreen(folder: name),
           ),
         );
       },
@@ -1004,15 +1052,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 _reload();
                               }
                             : null,
-                        onDeleteForever: isTrash
+                        onDeleteForever: isTrash || isNew || pl.isMetaCatalog
                             ? () async {
                                 await deleteTrackForever(context, track);
-                                _reload();
-                              }
-                            : null,
-                        onTrash: (isNew || pl.isMetaCatalog)
-                            ? () async {
-                                await moveTrackToTrash(context, track);
                                 _reload();
                               }
                             : null,
@@ -1531,6 +1573,14 @@ class _SystemCover extends StatelessWidget {
           const Color(0xFFFFDB4D),
           const Color(0xFF141414),
         ),
+      Playlist.kindVerified => (
+          AppTheme.lime,
+          const Color(0xFF141414),
+        ),
+      Playlist.kindUnverified => (
+          const Color(0xFF2A3530),
+          AppTheme.paperMuted,
+        ),
       Playlist.kindIncomplete => (
           AppTheme.lime,
           const Color(0xFF141414),
@@ -1585,7 +1635,6 @@ class _PlaylistTrackRow extends StatefulWidget {
     this.onRemove,
     this.onRestore,
     this.onDeleteForever,
-    this.onTrash,
   });
 
   final Track track;
@@ -1595,7 +1644,6 @@ class _PlaylistTrackRow extends StatefulWidget {
   final VoidCallback? onRemove;
   final VoidCallback? onRestore;
   final VoidCallback? onDeleteForever;
-  final VoidCallback? onTrash;
 
   @override
   State<_PlaylistTrackRow> createState() => _PlaylistTrackRowState();
@@ -1621,7 +1669,8 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
       ...standardTrackActions(
         context,
         track,
-        trash: widget.onTrash != null,
+        replace: !widget.isTrash,
+        deleteForever: widget.onDeleteForever == null && !widget.isTrash,
       ),
       if (widget.onRestore != null)
         TrackMenuAction(
@@ -1632,7 +1681,7 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
       if (widget.onDeleteForever != null)
         TrackMenuAction(
           icon: Icons.delete_forever_rounded,
-          label: 'Удалить файл',
+          label: 'Удалить',
           destructive: true,
           onSelected: widget.onDeleteForever!,
         ),
@@ -1705,7 +1754,7 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
                     icon: const Icon(Icons.restore_rounded, size: 20),
                   ),
                   IconButton(
-                    tooltip: 'Удалить файл',
+                    tooltip: 'Удалить',
                     onPressed: widget.onDeleteForever,
                     icon: Icon(
                       Icons.delete_forever_rounded,
@@ -1713,11 +1762,15 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
                       color: Colors.redAccent.shade100,
                     ),
                   ),
-                ] else if (widget.onTrash != null)
+                ] else if (widget.onDeleteForever != null)
                   IconButton(
-                    tooltip: 'В корзину',
-                    onPressed: widget.onTrash,
-                    icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                    tooltip: 'Удалить',
+                    onPressed: widget.onDeleteForever,
+                    icon: Icon(
+                      Icons.delete_forever_rounded,
+                      size: 20,
+                      color: Colors.redAccent.shade100,
+                    ),
                   )
                 else if (widget.onRemove != null)
                   IconButton(

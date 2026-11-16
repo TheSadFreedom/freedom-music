@@ -5,6 +5,13 @@ import '../models/track.dart';
 import '../utils/lyrics_format.dart';
 import 'genius_service.dart';
 
+class LyricsHit {
+  const LyricsHit(this.text, {required this.fromLrclib});
+
+  final String text;
+  final bool fromLrclib;
+}
+
 /// Fetch lyrics from [LRCLIB](https://lrclib.net), then Genius.
 class LyricsService {
   LyricsService({GeniusService? genius}) : _genius = genius ?? GeniusService();
@@ -24,7 +31,7 @@ class LyricsService {
   }
 
   /// Returns synced LRC text when available, otherwise plain lyrics.
-  Future<String?> fetchForTrack(Track track) async {
+  Future<LyricsHit?> fetchForTrack(Track track) async {
     final title = track.displayTitle.trim();
     final artist = track.displayArtist.trim();
     if (title.isEmpty ||
@@ -50,7 +57,7 @@ class LyricsService {
         albumName: albumName,
         durationSec: durationSec,
       );
-      if (hasLyrics(withNote)) return withNote;
+      if (withNote != null && hasLyrics(withNote.text)) return withNote;
     }
     return _fetchOnce(
       artist: artist,
@@ -62,7 +69,7 @@ class LyricsService {
 
   /// [note] set: «Artist - Title Note». Otherwise: «Artist - Title».
   /// Order: LRCLIB get → LRCLIB search → Genius.
-  Future<String?> _fetchOnce({
+  Future<LyricsHit?> _fetchOnce({
     required String artist,
     required String title,
     String? note,
@@ -77,7 +84,9 @@ class LyricsService {
       durationSec: durationSec,
       requiredNote: note,
     );
-    if (fromGet != null) return fromGet;
+    if (fromGet != null) {
+      return LyricsHit(fromGet, fromLrclib: true);
+    }
 
     // Duration mismatches (±2s) often fail `/api/get` — fall back to search.
     final fromSearch = await _searchBest(
@@ -87,14 +96,18 @@ class LyricsService {
       durationSec: durationSec,
       requiredNote: note,
     );
-    if (hasLyrics(fromSearch)) return fromSearch;
+    if (hasLyrics(fromSearch)) {
+      return LyricsHit(fromSearch!, fromLrclib: true);
+    }
 
-    return _genius.lyrics(
+    final fromGenius = await _genius.lyrics(
       artist: artist,
       title: title,
       note: note,
       phrase: true,
     );
+    if (!hasLyrics(fromGenius)) return null;
+    return LyricsHit(fromGenius!, fromLrclib: false);
   }
 
   Future<String?> _getBySignature({

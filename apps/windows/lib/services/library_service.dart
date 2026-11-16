@@ -142,6 +142,7 @@ class LibraryService extends ChangeNotifier {
   Map<String, List<Track>>? _genreCache;
   Map<String, List<Track>>? _artistCache;
   Map<String, List<Track>>? _producerCache;
+  Map<String, List<Track>>? _folderCache;
   List<ReleaseCalendarSection>? _calendarCache;
 
   void _dropSlices() {
@@ -149,6 +150,7 @@ class LibraryService extends ChangeNotifier {
     _genreCache = null;
     _artistCache = null;
     _producerCache = null;
+    _folderCache = null;
     _calendarCache = null;
   }
 
@@ -163,9 +165,11 @@ class LibraryService extends ChangeNotifier {
 
     for (final track in _tracks) {
       catalog.add(track);
-      final name = track.displayGenre;
-      if (name.isNotEmpty) {
-        genre.putIfAbsent(name, () => []).add(track);
+      for (final name in track.genres) {
+        final list = genre.putIfAbsent(name, () => []);
+        if (!list.any((existing) => existing.trackKey == track.trackKey)) {
+          list.add(track);
+        }
       }
       _putArtist(track, artist, artistLabels);
       for (final raw in producerNames(track.producer)) {
@@ -264,7 +268,10 @@ class LibraryService extends ChangeNotifier {
     try {
       if (!_settings.trackKeysRemigrated) {
         final remapped = await _db.remigrateTrackKeysToArtistTitle();
-        if (remapped > 0) {
+        // Re-read files so wrongly merged paths (same title, different note/
+        // album) split into separate tracks after identity rules change.
+        final rebound = await _scanner.rebindFileIdentities();
+        if (remapped > 0 || rebound > 0) {
           await _settings.replaceChartSnapshots({});
         }
         await _settings.setTrackKeysRemigrated();
@@ -295,6 +302,8 @@ class LibraryService extends ChangeNotifier {
   Future<void> reload({bool warm = true}) async {
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
+    await _db.ensureVerifiedPlaylist();
+    await _db.ensureUnverifiedPlaylist();
     if (_settings.syncCloudPlaylist) {
       await _db.ensureCloudPlaylist();
     }
@@ -333,6 +342,8 @@ class LibraryService extends ChangeNotifier {
     await _db.syncTrashPlaylistMembership();
     if (_shuttingDown) return;
     await _db.syncNewPlaylistMembership();
+    if (_shuttingDown) return;
+    await _db.syncVerifiedPlaylistsMembership();
     if (_shuttingDown) return;
     await _db.removeMetaCatalogPlaylists();
     if (_shuttingDown) return;
@@ -538,11 +549,13 @@ class LibraryService extends ChangeNotifier {
   Future<void> restoreFromTrash(String trackKey) async {
     final trash = trashPlaylist;
     await _db.restoreTrackFromTrash(trackKey);
+    await _db.syncVerifiedPlaylistsMembership();
     final track = _rawTrackByKey(trackKey);
     if (track != null) {
       _replaceTrack(trackKey, track.copyWith(trashedAt: null));
     }
     if (trash != null) _bumpPlaylistCount(trash.id, -1);
+    _playlists = await _db.getPlaylists();
     _finishPlaylistMutation(
       touchedPlaylistIds: {if (trash != null) trash.id},
     );
@@ -689,23 +702,30 @@ class LibraryService extends ChangeNotifier {
       );
 
       await reload();
+      final renamed = await _renameLibraryFilesAfterScan();
+      if (renamed > 0) {
+        await reload();
+      }
       final modeLabel = force
           ? 'Полный перескан. '
           : newOnly
               ? 'Только новые файлы. '
               : '';
+      final renamedLabel =
+          renamed > 0 ? ' Переименовано: $renamed.' : '';
       if (result.cancelled) {
         _lastScanMessage =
             '$modeLabel'
             'Сканирование остановлено. '
             'Успели: новых ${result.added}, обновлено ${result.updated}, '
-            'без изменений ${result.skipped}.';
+            'без изменений ${result.skipped}.$renamedLabel';
       } else {
         _lastScanMessage =
             '$modeLabel'
             'Файлов: ${result.totalFiles}. '
             'Новых: ${result.added}, обновлено: ${result.updated}, '
-            'без изменений: ${result.skipped}, удалено: ${result.removed}.';
+            'без изменений: ${result.skipped}, удалено: ${result.removed}.'
+            '$renamedLabel';
       }
     } catch (e) {
       _error = e.toString();
@@ -716,6 +736,65 @@ class LibraryService extends ChangeNotifier {
       _scanProgress = null;
       _paintJob(force: true);
     }
+  }
+
+  /// Rename files in place to `Artist - Title` / `Artist - Title Note`.
+  Future<int> _renameLibraryFilesAfterScan() async {
+    final tracks = await _db.getAllTracks(includeTrashed: true);
+    final total = tracks.length;
+    var renamed = 0;
+    var checked = 0;
+    for (final track in tracks) {
+      if (_cancelFill) break;
+      checked++;
+      _scanProgress = ScanProgress(
+        processed: checked,
+        total: total,
+        added: renamed,
+        updated: 0,
+        skipped: checked - renamed,
+        currentFile: '${track.displayArtist} — ${track.displayTitle}',
+      );
+      if (checked == total || checked % 50 == 0) {
+        _paintJob();
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      Future<Track> rename() => MetadataWriter.renameFilesToMetadata(
+            track,
+            musicDir: _paths.musicDir,
+          );
+
+      Track updated;
+      try {
+        final unlock = unlockAudioForWrite;
+        updated = unlock == null
+            ? await rename()
+            : await unlock(track.filePaths, rename);
+      } catch (_) {
+        continue;
+      }
+
+      if (identical(updated, track)) continue;
+      if (updated.filePaths.length == track.filePaths.length) {
+        var same = true;
+        for (var i = 0; i < track.filePaths.length; i++) {
+          if (!p.equals(updated.filePaths[i], track.filePaths[i])) {
+            same = false;
+            break;
+          }
+        }
+        if (same) continue;
+      }
+
+      await _db.applyMetadataEdit(
+        oldTrackKey: track.trackKey,
+        updated: updated,
+      );
+      _replaceTrack(track.trackKey, updated);
+      renamed++;
+    }
+    return renamed;
   }
 
   /// Rewrite titles and albums that end with a feat. or prod credit.
@@ -830,6 +909,69 @@ class LibraryService extends ChangeNotifier {
   Map<String, List<Track>> tracksByGenre() {
     _ensureTrackSlices();
     return _genreCache!;
+  }
+
+  /// Tracks grouped by top-level folder under [musicDir] (e.g. `1`, `2`, `Корень`).
+  Map<String, List<Track>> tracksByFolder() {
+    _ensureFolderSlice();
+    return _folderCache!;
+  }
+
+  void _ensureFolderSlice() {
+    if (_folderCache != null) return;
+    final musicRoot = p.normalize(_paths.musicDir);
+    final map = <String, List<Track>>{};
+    for (final track in _tracks) {
+      if (track.isTrashed) continue;
+      final folder = _folderLabelForTrack(track, musicRoot);
+      if (folder == null) continue;
+      final list = map.putIfAbsent(folder, () => []);
+      if (!list.any((existing) => existing.trackKey == track.trackKey)) {
+        list.add(track);
+      }
+    }
+    for (final list in map.values) {
+      list.sort((a, b) {
+        final byArtist = a.displayArtist.toLowerCase().compareTo(
+              b.displayArtist.toLowerCase(),
+            );
+        if (byArtist != 0) return byArtist;
+        return a.displayTitle
+            .toLowerCase()
+            .compareTo(b.displayTitle.toLowerCase());
+      });
+    }
+    final keys = map.keys.toList()..sort(_compareFolderNames);
+    _folderCache = {for (final key in keys) key: map[key]!};
+  }
+
+  static String? _folderLabelForTrack(Track track, String musicRoot) {
+    final raw = track.primaryPath;
+    if (raw == null || raw.isEmpty) return null;
+    final filePath = p.normalize(raw);
+    final underMusic =
+        p.isWithin(musicRoot, filePath) || p.equals(filePath, musicRoot);
+    if (!underMusic) return null;
+    final parent = p.dirname(filePath);
+    if (p.equals(parent, musicRoot)) return 'Корень';
+    if (!p.isWithin(musicRoot, parent)) return null;
+    final rel = p.relative(parent, from: musicRoot);
+    final parts = p.split(rel).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty || parts.first == '.' || parts.first == '..') {
+      return null;
+    }
+    return parts.first;
+  }
+
+  static int _compareFolderNames(String a, String b) {
+    if (a == 'Корень') return -1;
+    if (b == 'Корень') return 1;
+    final na = int.tryParse(a);
+    final nb = int.tryParse(b);
+    if (na != null && nb != null) return na.compareTo(nb);
+    if (na != null) return -1;
+    if (nb != null) return 1;
+    return a.toLowerCase().compareTo(b.toLowerCase());
   }
 
   /// One track can appear under several artists ("A, B" → A and B).
@@ -1182,8 +1324,9 @@ class LibraryService extends ChangeNotifier {
   Future<void> addListenMs(String trackKey, int ms) =>
       _db.addListenMs(trackKey, ms);
 
-  /// Если в файле нет текста — ищет в сети и показывает в сессии.
-  /// Не пишет в теги и не пишет в БД (в отличие от job «Ищем текст»).
+  /// Если в файле нет текста — ищет в сети.
+  /// Текст кладётся в сессию (и LRCLIB, и Genius), без записи в теги во время
+  /// playback — иначе unlockAudio переоткрывает трек с нуля.
   Future<Track?> ensureRemoteLyrics(Track track) async {
     final key = track.trackKey;
     if (hasLyrics(track.lyrics)) return null;
@@ -1200,13 +1343,13 @@ class LibraryService extends ChangeNotifier {
     _lyricsFetching.add(key);
     notifyListeners();
     try {
-      final text = await _lyrics.fetchForTrack(track);
-      if (text == null || !hasLyrics(text)) {
+      final hit = await _lyrics.fetchForTrack(track);
+      if (hit == null || !hasLyrics(hit.text)) {
         _lyricsMisses.add(key);
         return null;
       }
-      _lyricsSession[key] = text;
       _lyricsMisses.remove(key);
+      _lyricsSession[key] = hit.text;
       return _withSessionLyrics(trackByKey(key) ?? track);
     } catch (e, st) {
       debugPrint('lyrics lookup $key: $e\n$st');
@@ -1322,15 +1465,21 @@ class LibraryService extends ChangeNotifier {
   }) async {
     Future<Track> write() async {
       final oldKey = track.trackKey;
-      final updated = await MetadataWriter.write(
+      var updated = await MetadataWriter.write(
         track,
         draft,
         paths: _paths,
       );
+      updated = await MetadataWriter.renameFilesToMetadata(
+        updated,
+        musicDir: _paths.musicDir,
+      );
       await _db.applyMetadataEdit(oldTrackKey: oldKey, updated: updated);
+      await _db.syncVerifiedPlaylistsMembership();
       await _evictCover(track.coverPath);
       await _evictCover(updated.coverPath);
       _replaceTrack(oldKey, updated);
+      _playlists = await _db.getPlaylists();
       if (refreshLibrary) {
         await publishMetadata();
       } else if (notify) {
@@ -1564,9 +1713,15 @@ class LibraryService extends ChangeNotifier {
   List<String> genreMosaic(String genre) =>
       _genreMosaicCache[genre] ?? const [];
 
+  /// Covers for a folder card under «По папкам».
+  List<String> folderMosaic(String folder) =>
+      _folderMosaicCache[folder] ?? const [];
+
   final Map<String, List<String>> _genreMosaicCache = {};
+  final Map<String, List<String>> _folderMosaicCache = {};
   final Map<int, String> _playlistMosaicSig = {};
   final Map<String, String> _genreMosaicSig = {};
+  final Map<String, String> _folderMosaicSig = {};
 
   String _coverSetSig(Iterable<String?> paths) {
     final buf = StringBuffer();
@@ -1620,9 +1775,9 @@ class LibraryService extends ChangeNotifier {
     final byGenre = <String, List<String?>>{};
     var walked = 0;
     for (final track in _tracks) {
-      final genre = track.displayGenre;
-      if (genre.isEmpty) continue;
-      byGenre.putIfAbsent(genre, () => []).add(track.coverPath);
+      for (final genre in track.genres) {
+        byGenre.putIfAbsent(genre, () => []).add(track.coverPath);
+      }
       walked++;
       if (walked % 400 == 0) await Future<void>.delayed(Duration.zero);
     }
@@ -1653,6 +1808,42 @@ class LibraryService extends ChangeNotifier {
     _genreMosaicSig
       ..clear()
       ..addAll(nextGenreSig);
+
+    final byFolder = <String, List<String?>>{};
+    final musicRoot = p.normalize(_paths.musicDir);
+    for (final track in _tracks) {
+      if (track.isTrashed) continue;
+      final folder = _folderLabelForTrack(track, musicRoot);
+      if (folder == null) continue;
+      byFolder.putIfAbsent(folder, () => []).add(track.coverPath);
+    }
+    final folders = <String, List<String>>{};
+    final nextFolderSig = <String, String>{};
+    for (final entry in byFolder.entries) {
+      final known = _coverSetSig(entry.value);
+      final previous = _folderMosaicCache[entry.key];
+      if (!known.contains('?') &&
+          known == _folderMosaicSig[entry.key] &&
+          previous != null) {
+        folders[entry.key] = previous;
+        nextFolderSig[entry.key] = known;
+        continue;
+      }
+      folders[entry.key] = pickPlaylistMosaic(
+        entry.value,
+        seed: stableSeed('folder:${entry.key}'),
+        identity: coverFingerprint,
+      );
+      nextFolderSig[entry.key] = _coverSetSig(entry.value);
+      stepped++;
+      if (stepped % 8 == 0) await Future<void>.delayed(Duration.zero);
+    }
+    _folderMosaicCache
+      ..clear()
+      ..addAll(folders);
+    _folderMosaicSig
+      ..clear()
+      ..addAll(nextFolderSig);
   }
 
   Future<List<Track>> playlistTracks(int id) async {
