@@ -10,6 +10,7 @@ import '../services/library_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/screen_title.dart';
+import '../widgets/verified_badge.dart';
 import 'artist_detail_screen.dart';
 
 class _ArtistRow {
@@ -26,6 +27,9 @@ class _ArtistRow {
   final int rank;
 
   int get trackCount => tracks.length;
+
+  bool get allVerified =>
+      tracks.isNotEmpty && tracks.every((t) => t.verified);
 
   String? coverFromTracks() {
     for (final t in tracks) {
@@ -359,33 +363,44 @@ class _ArtistGridTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    if (row.rank > 0)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Text.rich(
                       TextSpan(
-                        text: '${row.rank} ',
-                        style: GoogleFonts.figtree(
-                          color: AppTheme.paperMuted,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                          height: 1.2,
-                        ),
+                        children: [
+                          if (row.rank > 0)
+                            TextSpan(
+                              text: '${row.rank} ',
+                              style: GoogleFonts.figtree(
+                                color: AppTheme.paperMuted,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                                height: 1.2,
+                              ),
+                            ),
+                          TextSpan(
+                            text: row.name,
+                            style: GoogleFonts.figtree(
+                              color: AppTheme.paper,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
-                    TextSpan(
-                      text: row.name,
-                      style: GoogleFonts.figtree(
-                        color: AppTheme.paper,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
+                  ),
+                  if (row.allVerified) ...[
+                    const SizedBox(width: 4),
+                    const VerifiedBadge(verified: true, size: 14),
                   ],
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
+                ],
               ),
               const SizedBox(height: 4),
               FittedBox(

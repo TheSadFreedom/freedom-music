@@ -22,6 +22,7 @@ import '../widgets/playing_track.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
+import '../widgets/verified_badge.dart';
 import 'release_detail_screen.dart';
 import 'release_metadata_editor_screen.dart';
 
@@ -406,6 +407,9 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     final singles = groups?.singles ?? const <ArtistRelease>[];
     final appearances = groups?.appearances ?? const <ArtistRelease>[];
     final photoPath = _resolvePhoto(library, popular);
+    final verifiedCount = tracks.where((t) => t.verified).length;
+    final allVerified =
+        tracks.isNotEmpty && verifiedCount == tracks.length;
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
@@ -418,9 +422,20 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
               icon: const Icon(Icons.arrow_back),
               onPressed: () => Navigator.of(context).pop(),
             ),
-            title: Text(
-              widget.artist,
-              style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+            title: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    widget.artist,
+                    style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (allVerified) ...[
+                  const SizedBox(width: 8),
+                  const VerifiedBadge(verified: true, size: 18),
+                ],
+              ],
             ),
           ),
           SliverToBoxAdapter(child: _Header(
@@ -429,6 +444,8 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             canClearPhoto: library.artistPhotoPath(widget.artist) != null,
             chartRank: widget.chartRank,
             trackCount: tracks.length,
+            verifiedCount: verifiedCount,
+            allVerified: allVerified,
             onListen: () => player.playTracks(popular, shuffle: false),
             onShuffle: () => player.playTracks(tracks, shuffle: true),
             onPickPhoto: () => _pickPhoto(context),
@@ -668,6 +685,8 @@ class _Header extends StatelessWidget {
     required this.canClearPhoto,
     required this.chartRank,
     required this.trackCount,
+    required this.verifiedCount,
+    required this.allVerified,
     required this.onListen,
     required this.onShuffle,
     required this.onPickPhoto,
@@ -682,8 +701,9 @@ class _Header extends StatelessWidget {
   final bool canClearPhoto;
   final int chartRank;
   final int trackCount;
-  final VoidCallback onListen;
-  final VoidCallback onShuffle;
+  final int verifiedCount;
+  final bool allVerified;
+  final VoidCallback onListen;  final VoidCallback onShuffle;
   final VoidCallback onPickPhoto;
   final VoidCallback onClearPhoto;
   final VoidCallback? onMerge;
@@ -726,16 +746,29 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          artist,
-          textAlign: wide ? TextAlign.left : TextAlign.center,
-          style: GoogleFonts.syne(
-            color: AppTheme.paper,
-            fontSize: wide ? 44 : 32,
-            fontWeight: FontWeight.w800,
-            height: 1.05,
-            letterSpacing: -1,
-          ),
+        Row(
+          mainAxisAlignment:
+              wide ? MainAxisAlignment.start : MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                artist,
+                textAlign: wide ? TextAlign.left : TextAlign.center,
+                style: GoogleFonts.syne(
+                  color: AppTheme.paper,
+                  fontSize: wide ? 44 : 32,
+                  fontWeight: FontWeight.w800,
+                  height: 1.05,
+                  letterSpacing: -1,
+                ),
+              ),
+            ),
+            if (allVerified) ...[
+              const SizedBox(width: 10),
+              VerifiedBadge(verified: true, size: wide ? 28 : 22),
+            ],
+          ],
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -751,6 +784,13 @@ class _Header extends StatelessWidget {
               icon: Icons.music_note_outlined,
               text: '$trackCount треков',
             ),
+            if (verifiedCount > 0)
+              _MetaChip(
+                icon: Icons.verified_rounded,
+                text: allVerified
+                    ? 'Все проверены'
+                    : '$verifiedCount из $trackCount проверены',
+              ),
           ],
         ),
         const SizedBox(height: 20),

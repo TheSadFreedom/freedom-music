@@ -44,7 +44,6 @@ class _TrackCoverPlayState extends State<TrackCoverPlay> {
         File(path),
         fit: BoxFit.cover,
         cacheWidth: px,
-        cacheHeight: px,
         filterQuality: FilterQuality.low,
         errorBuilder: (_, _, _) => placeholder,
         gaplessPlayback: true,
