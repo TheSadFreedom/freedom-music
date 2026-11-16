@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:fm_mod_protocol/fm_mod_protocol.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import '../data/app_paths.dart';
+import '../data/track_key.dart';
 import '../models/track.dart';
 import '../navigation/app_navigator.dart';
 import '../services/metadata_writer.dart';
@@ -170,8 +173,146 @@ class ModHostServer {
         return picked?.toJson();
       case ModRpcMethods.replaceTrackAudio:
         return (await _replaceTrackAudio(params)).toJson();
+      case ModRpcMethods.listTracks:
+        return _listTracks().toJson();
+      case ModRpcMethods.applyTrackMetadata:
+        return (await _applyTrackMetadata(params)).toJson();
       default:
         throw ModRpcError(code: -32601, message: 'Method not found: $method');
+    }
+  }
+
+  TrackListResult _listTracks() {
+    final tracks = <TrackListItem>[];
+    for (final t in library.tracks) {
+      if (t.isTrashed) continue;
+      tracks.add(
+        TrackListItem(
+          trackKey: t.trackKey,
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+          albumArtist: t.albumArtist,
+          producer: t.producer,
+          note: t.note,
+          genre: t.genre,
+          year: t.year,
+          trackNumber: t.trackNumber,
+          trackTotal: t.trackTotal,
+          discNumber: t.discNumber,
+          lyrics: t.lyrics,
+          coverPath: t.coverPath,
+          verified: t.verified,
+        ),
+      );
+    }
+    return TrackListResult(tracks: tracks);
+  }
+
+  Future<ApplyTrackMetadataResult> _applyTrackMetadata(
+    Map<String, dynamic> params,
+  ) async {
+    final key = '${params['trackKey'] ?? ''}'.trim();
+    if (key.isEmpty) {
+      throw const ModRpcError(code: -32602, message: 'trackKey required');
+    }
+    final track = library.trackByKey(key);
+    if (track == null) {
+      throw ModRpcError(code: -32004, message: 'Unknown track: $key');
+    }
+    final fillEmptyOnly = params['fillEmptyOnly'] != false;
+    final draft = MetadataDraft.fromTrack(track);
+
+    String? str(String name) {
+      final v = params[name];
+      if (v == null) return null;
+      final s = '$v'.trim();
+      return s.isEmpty ? null : s;
+    }
+
+    int? asInt(String name) {
+      final v = params[name];
+      if (v is int) return v;
+      if (v is double) return v.toInt();
+      return int.tryParse('${v ?? ''}');
+    }
+
+    void setString(void Function(String) assign, String? incoming, String current) {
+      if (incoming == null) return;
+      if (fillEmptyOnly && !isBlankMeta(current)) return;
+      assign(incoming);
+    }
+
+    void setNullable(
+      void Function(String?) assign,
+      String? incoming,
+      String? current,
+    ) {
+      if (incoming == null) return;
+      if (fillEmptyOnly && !isBlankMeta(current)) return;
+      assign(incoming);
+    }
+
+    void setInt(void Function(int?) assign, int? incoming, int? current) {
+      if (incoming == null) return;
+      if (fillEmptyOnly && current != null && current >= 1) return;
+      assign(incoming);
+    }
+
+    setString((v) => draft.title = v, str('title'), draft.title);
+    setString((v) => draft.artist = v, str('artist'), draft.artist);
+    setString((v) => draft.album = v, str('album'), draft.album);
+    setNullable((v) => draft.albumArtist = v, str('albumArtist'), draft.albumArtist);
+    setNullable((v) => draft.producer = v, str('producer'), draft.producer);
+    setString((v) => draft.genre = v, str('genre'), draft.genre);
+    final year = asInt('year');
+    if (year != null) {
+      if (!fillEmptyOnly || draft.year == null || draft.year! < 1000) {
+        draft.year = year;
+      }
+    }
+    setInt((v) => draft.trackNumber = v, asInt('trackNumber'), draft.trackNumber);
+    setInt((v) => draft.trackTotal = v, asInt('trackTotal'), draft.trackTotal);
+    setInt((v) => draft.discNumber = v, asInt('discNumber'), draft.discNumber);
+
+    final coverUrl = str('coverUrl');
+    final coverMissing = track.coverPath == null ||
+        track.coverPath!.trim().isEmpty ||
+        !File(track.coverPath!).existsSync();
+    if (coverUrl != null && (!fillEmptyOnly || coverMissing)) {
+      final bytes = await _downloadCover(coverUrl);
+      if (bytes != null && bytes.isNotEmpty) {
+        draft.coverBytes = bytes;
+        draft.coverMime = coverUrl.toLowerCase().contains('.png')
+            ? 'image/png'
+            : 'image/jpeg';
+        draft.removeCover = false;
+      }
+    }
+
+    final updated = await library.saveTrackMetadata(
+      track,
+      draft,
+      refreshLibrary: false,
+      notify: true,
+    );
+    return ApplyTrackMetadataResult(
+      trackKey: updated.trackKey,
+      title: updated.displayTitle,
+      artist: updated.displayArtist,
+    );
+  }
+
+  Future<Uint8List?> _downloadCover(String url) async {
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      if (response.bodyBytes.isEmpty) return null;
+      return response.bodyBytes;
+    } catch (_) {
+      return null;
     }
   }
 
