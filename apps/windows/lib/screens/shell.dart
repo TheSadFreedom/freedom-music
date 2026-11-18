@@ -21,6 +21,7 @@ import 'calendar_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
+import 'producers_screen.dart';
 import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
@@ -124,7 +125,7 @@ class _AppShellState extends State<AppShell> {
     final page = switch (index) {
       0 => HomeScreen(key: _homeKey),
       1 => const ArtistsScreen(),
-      2 => const ArtistsScreen(producers: true),
+      2 => const ProducersScreen(),
       3 => const ChartScreen(),
       4 => const CalendarScreen(),
       5 => const PlaylistsScreen(),
