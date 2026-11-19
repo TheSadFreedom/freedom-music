@@ -125,6 +125,9 @@ class LibraryService extends ChangeNotifier {
 
   /// normalizeTag(card) → other names that open the same producer card.
   Map<String, List<String>> _producerAliasLabelsByCard = {};
+
+  List<CreativeCollective> _collectives = [];
+
   _CatalogIndex? _catalogIndex;
   String? _catalogQuery;
   CatalogSearch? _catalogHit;
@@ -311,6 +314,7 @@ class LibraryService extends ChangeNotifier {
     _trackKeyAlias.clear();
     _playlists = await _db.getPlaylists();
     await _loadArtistAliases();
+    await _loadCollectives();
     _invalidateSearch();
     _error = null;
     notifyListeners();
@@ -360,6 +364,143 @@ class LibraryService extends ChangeNotifier {
     final producer = _aliasIndex(await _db.getProducerAliases());
     _producerAliasToCard = producer.toCard;
     _producerAliasLabelsByCard = producer.labels;
+  }
+
+  Future<void> _loadCollectives() async {
+    _collectives = await _db.getCollectives();
+  }
+
+  List<CreativeCollective> get collectives =>
+      List<CreativeCollective>.unmodifiable(_collectives);
+
+  Set<String> get collectiveHiddenArtistKeys {
+    return {
+      for (final c in _collectives)
+        if (c.hidesArtist && c.name.trim().isNotEmpty) c.name.trim().toLowerCase(),
+    };
+  }
+
+  /// Artist cards for the Artists tab (hides collective identities).
+  Map<String, List<Track>> tracksByArtistForTab() {
+    final all = tracksByArtist();
+    final hidden = collectiveHiddenArtistKeys;
+    if (hidden.isEmpty) return all;
+    return {
+      for (final e in all.entries)
+        if (!hidden.contains(e.key.toLowerCase())) e.key: e.value,
+    };
+  }
+
+  CreativeCollective? collectiveById(String id) {
+    for (final c in _collectives) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  CreativeCollective? collectiveByName(String name) {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    for (final c in _collectives) {
+      if (c.name.trim().toLowerCase() == key) return c;
+    }
+    return null;
+  }
+
+  /// Tracks of all members (+ tracks tagged with the collective name), unique by key.
+  List<Track> collectiveTracks(CreativeCollective collective) {
+    final byArtist = tracksByArtist();
+    final out = <Track>[];
+    final seen = <String>{};
+
+    void addAll(List<Track>? list) {
+      if (list == null) return;
+      for (final track in list) {
+        if (seen.add(track.trackKey)) out.add(track);
+      }
+    }
+
+    addAll(byArtist[collective.name]);
+    // Case-insensitive name lookup if exact key missing.
+    if (!byArtist.containsKey(collective.name)) {
+      final want = collective.name.trim().toLowerCase();
+      for (final e in byArtist.entries) {
+        if (e.key.toLowerCase() == want) {
+          addAll(e.value);
+          break;
+        }
+      }
+    }
+
+    for (final member in collective.members) {
+      addAll(byArtist[member]);
+      final want = member.trim().toLowerCase();
+      if (byArtist.containsKey(member)) continue;
+      for (final e in byArtist.entries) {
+        if (e.key.toLowerCase() == want) {
+          addAll(e.value);
+          break;
+        }
+      }
+    }
+
+    out.sort((a, b) {
+      final byArtistName = a.displayArtist.toLowerCase().compareTo(
+            b.displayArtist.toLowerCase(),
+          );
+      if (byArtistName != 0) return byArtistName;
+      return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+    });
+    return out;
+  }
+
+  Future<CreativeCollective> createCollective({
+    required String name,
+    required List<String> members,
+    required bool hidesArtist,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Название объединения пустое');
+    }
+    final filtered = [
+      for (final m in members)
+        if (m.trim().isNotEmpty &&
+            m.trim().toLowerCase() != trimmed.toLowerCase())
+          m.trim(),
+    ];
+    final created = await _db.insertCollective(
+      name: trimmed,
+      hidesArtist: hidesArtist,
+      members: filtered,
+    );
+    await _loadCollectives();
+    notifyListeners();
+    return created;
+  }
+
+  Future<void> updateCollective(CreativeCollective collective) async {
+    final trimmed = collective.name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Название объединения пустое');
+    }
+    final filtered = [
+      for (final m in collective.members)
+        if (m.trim().isNotEmpty &&
+            m.trim().toLowerCase() != trimmed.toLowerCase())
+          m.trim(),
+    ];
+    await _db.updateCollective(
+      collective.copyWith(name: trimmed, members: filtered),
+    );
+    await _loadCollectives();
+    notifyListeners();
+  }
+
+  Future<void> deleteCollective(String id) async {
+    await _db.deleteCollective(id);
+    await _loadCollectives();
+    notifyListeners();
   }
 
   ({Map<String, String> toCard, Map<String, List<String>> labels}) _aliasIndex(
