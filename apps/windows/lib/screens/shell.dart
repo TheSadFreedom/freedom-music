@@ -21,6 +21,7 @@ import 'calendar_screen.dart';
 import 'chart_screen.dart';
 import 'collectives_screen.dart';
 import 'home_screen.dart';
+import 'new_releases_screen.dart';
 import 'playlists_screen.dart';
 import 'producers_screen.dart';
 import 'settings_screen.dart';
@@ -39,9 +40,9 @@ class _AppShellState extends State<AppShell> {
   final Set<int> _openedTabs = {0};
 
   /// Per-tab navigators so detail pages don't cover the mini player.
-  /// Indices: 0..6 content, 7 settings. Sidecar mods are actions, not tabs.
+  /// Indices: 0..7 content, 8 settings. Sidecar mods are actions, not tabs.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    8,
+    9,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -62,8 +63,8 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-  static const _topCount = 7;
-  static const _settingsTab = 7;
+  static const _topCount = 8;
+  static const _settingsTab = 8;
 
   static const _tabItems = <_NavItem>[
     _NavItem(
@@ -104,6 +105,12 @@ class _AppShellState extends State<AppShell> {
       label: 'Плейлисты',
     ),
     _NavItem(
+      icon: Icons.fiber_new_rounded,
+      selectedIcon: Icons.fiber_new_rounded,
+      label: 'Новинки',
+      glyph: FiberNewGlyph(),
+    ),
+    _NavItem(
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings,
       label: 'Настройки',
@@ -137,6 +144,7 @@ class _AppShellState extends State<AppShell> {
       4 => const ChartScreen(),
       5 => const CalendarScreen(),
       6 => const PlaylistsScreen(),
+      7 => const NewReleasesScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -152,9 +160,11 @@ class _AppShellState extends State<AppShell> {
               4 => const Color(0xFF8B6B3D),
               5 => const Color(0xFF3D6E8B),
               6 => const Color(0xFF5A3A6E),
+              7 => const Color(0xFF8B6B3D),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
+              7 => const Color(0xFF5A3A2A),
               6 => const Color(0xFF3D2A5C),
               5 => const Color(0xFF2A4A5C),
               4 => const Color(0xFF5A3A2A),

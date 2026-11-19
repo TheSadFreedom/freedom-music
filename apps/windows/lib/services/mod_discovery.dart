@@ -43,6 +43,8 @@ class ModDiscovery extends ChangeNotifier {
           directory: entity.path,
         );
         if (manifest == null) continue;
+        // «Новинки» built into the player shell — skip legacy sidecar.
+        if (manifest.id == 'new_releases') continue;
         final exe = File(manifest.exePath);
         if (!await exe.exists()) continue;
         if (!manifest.isCompatible) {
