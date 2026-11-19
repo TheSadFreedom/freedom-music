@@ -13,6 +13,38 @@ import '../widgets/screen_title.dart';
 import '../widgets/verified_badge.dart';
 import 'artist_detail_screen.dart';
 
+enum _ArtistSort { plays, tracks, name }
+
+class _SortOption {
+  const _SortOption({
+    required this.value,
+    required this.label,
+    required this.icon,
+  });
+
+  final _ArtistSort value;
+  final String label;
+  final IconData icon;
+}
+
+const _sortOptions = <_SortOption>[
+  _SortOption(
+    value: _ArtistSort.plays,
+    label: 'Прослушивания',
+    icon: Icons.headphones_rounded,
+  ),
+  _SortOption(
+    value: _ArtistSort.tracks,
+    label: 'Треки',
+    icon: Icons.music_note_rounded,
+  ),
+  _SortOption(
+    value: _ArtistSort.name,
+    label: 'А–Я',
+    icon: Icons.sort_by_alpha_rounded,
+  ),
+];
+
 class _ArtistRow {
   const _ArtistRow({
     required this.name,
@@ -41,9 +73,7 @@ class _ArtistRow {
 }
 
 class ArtistsScreen extends StatefulWidget {
-  const ArtistsScreen({super.key, this.producers = false});
-
-  final bool producers;
+  const ArtistsScreen({super.key});
 
   @override
   State<ArtistsScreen> createState() => _ArtistsScreenState();
@@ -56,6 +86,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
   final _number = NumberFormat('#,###', 'ru');
   final _searchController = TextEditingController();
   String _query = '';
+  _ArtistSort _sort = _ArtistSort.plays;
 
   @override
   void initState() {
@@ -99,7 +130,6 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       );
     }).toList();
 
-    // Chart rank is always by plays (all-time top).
     final byPlays = List<_ArtistRow>.from(rows)
       ..sort((a, b) {
         final byPlay = b.playCount.compareTo(a.playCount);
@@ -124,37 +154,57 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
     final q = _query.trim();
     if (q.isNotEmpty) {
       ranked = ranked
-          .where(
-            (r) => widget.producers
-                ? library.producerCardMatchesQuery(r.name, q)
-                : library.artistCardMatchesQuery(r.name, q),
-          )
+          .where((r) => library.artistCardMatchesQuery(r.name, q))
           .toList();
     }
 
-    ranked.sort((a, b) => a.rank.compareTo(b.rank));
+    int byName(_ArtistRow a, _ArtistRow b) =>
+        a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+    ranked.sort((a, b) {
+      switch (_sort) {
+        case _ArtistSort.plays:
+          final byPlay = b.playCount.compareTo(a.playCount);
+          if (byPlay != 0) return byPlay;
+          return byName(a, b);
+        case _ArtistSort.tracks:
+          final byTracks = b.trackCount.compareTo(a.trackCount);
+          if (byTracks != 0) return byTracks;
+          return byName(a, b);
+        case _ArtistSort.name:
+          return byName(a, b);
+      }
+    });
     return ranked;
   }
 
+  Future<void> _openArtist(_ArtistRow row) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistDetailScreen(
+          artist: row.name,
+          tracks: row.tracks,
+          playCount: row.playCount,
+          chartRank: row.rank,
+          trackPlayCounts: _playCounts,
+        ),
+      ),
+    );
+    await _loadPlayCounts();
+  }
+
   int _crossAxisCount(double width) {
-    if (width >= 1400) return 8;
-    if (width >= 1100) return 7;
-    if (width >= 900) return 6;
-    if (width >= 700) return 5;
-    if (width >= 520) return 4;
-    return 3;
+    if (width >= 1500) return 6;
+    if (width >= 1200) return 5;
+    if (width >= 920) return 4;
+    if (width >= 640) return 3;
+    return 2;
   }
 
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final artists = widget.producers
-        ? library.tracksByProducer()
-        : library.tracksByArtist();
-    final title = widget.producers ? 'Продюсеры' : 'Артисты';
-    final emptyLabel = widget.producers ? 'Нет продюсеров' : 'Нет артистов';
-    final searchHint =
-        widget.producers ? 'Поиск продюсера' : 'Поиск артиста';
+    final artists = library.tracksByArtistForTab();
 
     if (library.isEmpty) {
       return const Center(
@@ -168,60 +218,56 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ScreenTitle(
-          title: title,
+          title: 'Артисты',
           trailing: IconButton(
-                onPressed: _refreshing ? null : _loadPlayCounts,
-                visualDensity: VisualDensity.compact,
-                icon: _refreshing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh_rounded, color: AppTheme.paper),
+            onPressed: _refreshing ? null : _loadPlayCounts,
+            visualDensity: VisualDensity.compact,
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded, color: AppTheme.paper),
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (v) => setState(() => _query = v),
-            style: GoogleFonts.figtree(
-              color: AppTheme.paper,
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-            ),
-            cursorColor: AppTheme.lime,
-            decoration: InputDecoration(
-              hintText: searchHint,
-              hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
-              prefixIcon: const Icon(
-                Icons.search_rounded,
-                color: AppTheme.paperMuted,
-              ),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _query = '');
-                      },
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: AppTheme.paperMuted,
-                      ),
-                    ),
-              filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.06),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 12,
-              ),
-            ),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 720;
+              final search = _SearchField(
+                controller: _searchController,
+                query: _query,
+                onChanged: (v) => setState(() => _query = v),
+                onClear: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              );
+              final sort = _ArtistSortSwitcher(
+                selected: _sort,
+                onChanged: (value) => setState(() => _sort = value),
+              );
+
+              if (wide) {
+                return Row(
+                  children: [
+                    Expanded(child: search),
+                    const SizedBox(width: 18),
+                    sort,
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  search,
+                  const SizedBox(height: 12),
+                  Align(alignment: Alignment.centerLeft, child: sort),
+                ],
+              );
+            },
           ),
         ),
         Expanded(
@@ -231,7 +277,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                   ? Center(
                       child: Text(
                         _query.trim().isEmpty
-                            ? emptyLabel
+                            ? 'Нет артистов'
                             : 'Ничего не найдено',
                         style: GoogleFonts.figtree(
                           color: AppTheme.paperMuted,
@@ -243,42 +289,32 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                       builder: (context, constraints) {
                         final count = _crossAxisCount(constraints.maxWidth);
                         return GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: count,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 18,
-                            childAspectRatio: 0.72,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: 0.78,
                           ),
                           itemCount: rows.length,
                           itemBuilder: (context, index) {
                             final row = rows[index];
+                            final highlight = _sort == _ArtistSort.plays &&
+                                row.rank > 0 &&
+                                row.rank <= 3;
                             final photo = library.artistPhotoPath(row.name) ??
                                 row.coverFromTracks();
-                            return _ArtistGridTile(
+                            return _ArtistTile(
+                              index: index + 1,
                               row: row,
                               photoPath: photo,
-                              tracksLabel: _number.format(row.trackCount),
-                              playsLabel: _number.format(row.playCount),
-                              icon: widget.producers
-                                  ? Icons.headphones_rounded
-                                  : Icons.person_rounded,
-                              onTap: () async {
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => ArtistDetailScreen(
-                                      artist: row.name,
-                                      tracks: row.tracks,
-                                      playCount: row.playCount,
-                                      chartRank: row.rank,
-                                      trackPlayCounts: _playCounts,
-                                      byProducer: widget.producers,
-                                    ),
-                                  ),
-                                );
-                                await _loadPlayCounts();
-                              },
+                              highlight: highlight,
+                              tracksLabel:
+                                  '${_number.format(row.trackCount)} ${_trackWord(row.trackCount)}',
+                              playsLabel:
+                                  '${_number.format(row.playCount)} ${_listenWord(row.playCount)}',
+                              onTap: () => _openArtist(row),
                             );
                           },
                         );
@@ -288,150 +324,417 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       ],
     );
   }
+
+  String _trackWord(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return 'трек';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'трека';
+    }
+    return 'треков';
+  }
+
+  String _listenWord(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return 'прослушивание';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'прослушивания';
+    }
+    return 'прослушиваний';
+  }
 }
 
-class _ArtistGridTile extends StatelessWidget {
-  const _ArtistGridTile({
-    required this.row,
-    required this.photoPath,
-    required this.tracksLabel,
-    required this.playsLabel,
-    required this.onTap,
-    this.icon = Icons.person_rounded,
+class _ArtistSortSwitcher extends StatelessWidget {
+  const _ArtistSortSwitcher({
+    required this.selected,
+    required this.onChanged,
   });
 
-  final _ArtistRow row;
-  final String? photoPath;
-  final String tracksLabel;
-  final String playsLabel;
-  final VoidCallback onTap;
-  final IconData icon;
+  final _ArtistSort selected;
+  final ValueChanged<_ArtistSort> onChanged;
+
+  static const _accent = Color(0xFFFFDB4D);
 
   @override
   Widget build(BuildContext context) {
-    Widget avatar = Icon(
-      icon,
-      color: AppTheme.paperMuted.withValues(alpha: 0.7),
-      size: 40,
-    );
-    final path = photoPath;
-    if (path != null) {
-      avatar = fileCover(
-        context,
-        path,
-        // Decode a bit above the largest tile size so wide windows / high-DPI
-        // displays never upscale the portrait; the cache caps this at 640px.
-        logicalSize: 360,
-        filterQuality: FilterQuality.high,
-        errorBuilder: (_, _, _) => Icon(
-          icon,
-          color: AppTheme.paperMuted.withValues(alpha: 0.7),
-          size: 40,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.inkLift.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppTheme.paper.withValues(alpha: 0.08),
         ),
-      );
-    }
-
-    final metaStyle = GoogleFonts.figtree(
-      color: AppTheme.paperMuted,
-      fontWeight: FontWeight.w600,
-      fontSize: 11,
-      height: 1,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final option in _sortOptions)
+              _SortSegmentButton(
+                option: option,
+                selected: option.value == selected,
+                onTap: () {
+                  if (option.value != selected) onChanged(option.value);
+                },
+              ),
+          ],
+        ),
+      ),
     );
+  }
+}
 
+class _SortSegmentButton extends StatelessWidget {
+  const _SortSegmentButton({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _SortOption option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         mouseCursor: SystemMouseCursors.click,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Column(
+        borderRadius: BorderRadius.circular(999),
+        splashColor: Colors.black.withValues(alpha: 0.08),
+        highlightColor: Colors.black.withValues(alpha: 0.04),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? _ArtistSortSwitcher._accent
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: AppTheme.inkLift,
-                        shape: BoxShape.circle,
-                      ),
-                      child: ClipOval(child: avatar),
-                    ),
-                  ),
-                ),
+              Icon(
+                option.icon,
+                size: 15,
+                color: selected ? AppTheme.ink : AppTheme.paperMuted,
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Flexible(
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          if (row.rank > 0)
-                            TextSpan(
-                              text: '${row.rank} ',
-                              style: GoogleFonts.figtree(
-                                color: AppTheme.paperMuted,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
-                                height: 1.2,
-                              ),
-                            ),
-                          TextSpan(
-                            text: row.name,
-                            style: GoogleFonts.figtree(
-                              color: AppTheme.paper,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                              height: 1.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  if (row.allVerified) ...[
-                    const SizedBox(width: 4),
-                    const VerifiedBadge(verified: true, size: 14),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(tracksLabel, style: metaStyle),
-                    const SizedBox(width: 3),
-                    Icon(
-                      Icons.music_note_rounded,
-                      size: 12,
-                      color: AppTheme.paperMuted.withValues(alpha: 0.9),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 5),
-                      child: Text('–', style: metaStyle),
-                    ),
-                    Text(playsLabel, style: metaStyle),
-                    const SizedBox(width: 3),
-                    const Icon(
-                      Icons.headphones_rounded,
-                      size: 12,
-                      color: AppTheme.paperMuted,
-                    ),
-                  ],
+              const SizedBox(width: 7),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                style: GoogleFonts.figtree(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  letterSpacing: -0.1,
+                  height: 1.15,
+                  color: selected ? AppTheme.ink : AppTheme.paperMuted,
                 ),
+                child: Text(option.label),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      style: GoogleFonts.figtree(
+        color: AppTheme.paper,
+        fontSize: 15,
+        fontWeight: FontWeight.w500,
+      ),
+      cursorColor: AppTheme.lime,
+      decoration: InputDecoration(
+        hintText: 'Поиск артиста',
+        hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: AppTheme.paperMuted,
+        ),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                onPressed: onClear,
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: AppTheme.paperMuted,
+                ),
+              ),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.05),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: AppTheme.paper.withValues(alpha: 0.06),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: AppTheme.paper.withValues(alpha: 0.06),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: AppTheme.lime.withValues(alpha: 0.45),
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 14,
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistTile extends StatefulWidget {
+  const _ArtistTile({
+    required this.index,
+    required this.row,
+    required this.photoPath,
+    required this.highlight,
+    required this.tracksLabel,
+    required this.playsLabel,
+    required this.onTap,
+  });
+
+  final int index;
+  final _ArtistRow row;
+  final String? photoPath;
+  final bool highlight;
+  final String tracksLabel;
+  final String playsLabel;
+  final VoidCallback onTap;
+
+  @override
+  State<_ArtistTile> createState() => _ArtistTileState();
+}
+
+class _ArtistTileState extends State<_ArtistTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = widget.row;
+    final accent = widget.highlight ? AppTheme.lime : AppTheme.mossBright;
+    final indexLabel = widget.index.toString().padLeft(2, '0');
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                transform: Matrix4.translationValues(0, _hovered ? -3 : 0, 0),
+                transformAlignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: _hovered
+                        ? accent.withValues(alpha: 0.4)
+                        : Colors.transparent,
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: _hovered ? 0.35 : 0.18,
+                      ),
+                      blurRadius: _hovered ? 28 : 16,
+                      offset: Offset(0, _hovered ? 14 : 8),
+                    ),
+                    if (_hovered)
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.14),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
+                      ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20.5),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      const ColoredBox(color: AppTheme.inkLift),
+                      _ArtistPhoto(path: widget.photoPath),
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0x330C1210),
+                              Color(0x000C1210),
+                              Color(0xB30C1210),
+                              Color(0xF20C1210),
+                            ],
+                            stops: [0, 0.35, 0.72, 1],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.38),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: widget.highlight
+                                  ? accent.withValues(alpha: 0.55)
+                                  : AppTheme.paper.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              indexLabel,
+                              style: GoogleFonts.figtree(
+                                color: widget.highlight
+                                    ? accent
+                                    : AppTheme.paper.withValues(alpha: 0.9),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11.5,
+                                letterSpacing: 0.6,
+                                height: 1,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 14,
+                        right: 14,
+                        bottom: 14,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    row.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.syne(
+                                      color: AppTheme.paper,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 18,
+                                      height: 1.1,
+                                      letterSpacing: -0.45,
+                                    ),
+                                  ),
+                                ),
+                                if (row.allVerified) ...[
+                                  const SizedBox(width: 6),
+                                  const VerifiedBadge(
+                                    verified: true,
+                                    size: 15,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${widget.tracksLabel}  ·  ${widget.playsLabel}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.figtree(
+                                color: widget.highlight
+                                    ? accent.withValues(alpha: 0.92)
+                                    : AppTheme.paper.withValues(alpha: 0.72),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                height: 1.15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistPhoto extends StatelessWidget {
+  const _ArtistPhoto({required this.path});
+
+  final String? path;
+
+  @override
+  Widget build(BuildContext context) {
+    final photo = path;
+    if (photo == null) {
+      return Center(
+        child: Icon(
+          Icons.person_rounded,
+          size: 52,
+          color: AppTheme.paperMuted.withValues(alpha: 0.45),
+        ),
+      );
+    }
+
+    return fileCover(
+      context,
+      photo,
+      logicalSize: 360,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, _, _) => Center(
+        child: Icon(
+          Icons.person_rounded,
+          size: 52,
+          color: AppTheme.paperMuted.withValues(alpha: 0.45),
         ),
       ),
     );
