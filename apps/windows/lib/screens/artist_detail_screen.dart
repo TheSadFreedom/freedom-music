@@ -22,7 +22,9 @@ import '../widgets/playing_track.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
+import '../widgets/collective_editor_dialog.dart';
 import '../widgets/verified_badge.dart';
+import '../navigation/library_navigation.dart';
 import 'release_detail_screen.dart';
 import 'release_metadata_editor_screen.dart';
 
@@ -38,6 +40,8 @@ class ArtistDetailScreen extends StatefulWidget {
     required this.chartRank,
     required this.trackPlayCounts,
     this.byProducer = false,
+    this.byCollective = false,
+    this.collectiveId,
   });
 
   final String artist;
@@ -46,6 +50,8 @@ class ArtistDetailScreen extends StatefulWidget {
   final int chartRank;
   final Map<String, int> trackPlayCounts;
   final bool byProducer;
+  final bool byCollective;
+  final String? collectiveId;
 
   @override
   State<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
@@ -53,6 +59,17 @@ class ArtistDetailScreen extends StatefulWidget {
 
 class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
   List<Track> _liveTracks(LibraryService library) {
+    if (widget.byCollective) {
+      final id = widget.collectiveId;
+      final collective = id == null
+          ? library.collectiveByName(widget.artist)
+          : library.collectiveById(id);
+      if (collective != null) {
+        final live = library.collectiveTracks(collective);
+        if (live.isNotEmpty) return live;
+      }
+      return widget.tracks;
+    }
     final want = widget.artist.toLowerCase();
     final live = library.catalogTracks
         .where(
@@ -383,6 +400,87 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     await context.read<LibraryService>().clearArtistPhoto(widget.artist);
   }
 
+  Future<void> _editCollective(BuildContext context) async {
+    final library = context.read<LibraryService>();
+    final id = widget.collectiveId;
+    final existing = id == null
+        ? library.collectiveByName(widget.artist)
+        : library.collectiveById(id);
+    if (existing == null) return;
+    final updated = await showCollectiveEditorDialog(
+      context,
+      existing: existing,
+    );
+    if (updated == null || !context.mounted) return;
+    final tracks = library.collectiveTracks(updated);
+    final counts = await library.playCountsAllTime();
+    if (!context.mounted) return;
+    final plays = tracks.fold<int>(
+      0,
+      (sum, t) => sum + (counts[t.trackKey] ?? 0),
+    );
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => ArtistDetailScreen(
+          artist: updated.name,
+          tracks: tracks,
+          playCount: plays,
+          chartRank: widget.chartRank,
+          trackPlayCounts: counts,
+          byCollective: true,
+          collectiveId: updated.id,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteCollective(BuildContext context) async {
+    final library = context.read<LibraryService>();
+    final id = widget.collectiveId;
+    final existing = id == null
+        ? library.collectiveByName(widget.artist)
+        : library.collectiveById(id);
+    if (existing == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.inkLift,
+        title: Text(
+          'Удалить объединение?',
+          style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          '«${existing.name}» будет удалено. Артисты останутся на месте.',
+          style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Отмена',
+              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: _kYellow),
+            child: Text(
+              'Удалить',
+              style: GoogleFonts.figtree(
+                color: const Color(0xFF1A1408),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await library.deleteCollective(existing.id);
+    if (!context.mounted) return;
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
@@ -392,14 +490,26 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     final collabs = widget.byProducer
         ? _collaborations(library, tracks)
         : const <_ProducerCollab>[];
+    final collective = widget.byCollective
+        ? (widget.collectiveId == null
+            ? library.collectiveByName(widget.artist)
+            : library.collectiveById(widget.collectiveId!))
+        : null;
+    final memberKeys = <String>{
+      widget.artist.toLowerCase(),
+      if (collective != null)
+        for (final m in collective.members) m.trim().toLowerCase(),
+    }..removeWhere((k) => k.isEmpty);
     final groups = widget.byProducer
         ? null
         : groupArtistReleases(
             artistTracks: tracks,
             libraryTracks: library.catalogTracks,
-            isThisArtist: (name) =>
-                library.artistCardName(name).toLowerCase() ==
-                widget.artist.toLowerCase(),
+            isThisArtist: (name) {
+              final card = library.artistCardName(name).toLowerCase();
+              if (widget.byCollective) return memberKeys.contains(card);
+              return card == widget.artist.toLowerCase();
+            },
             cardName: library.artistCardName,
           );
     final albums = groups?.albums ?? const <ArtistRelease>[];
@@ -450,12 +560,33 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             onShuffle: () => player.playTracks(tracks, shuffle: true),
             onPickPhoto: () => _pickPhoto(context),
             onClearPhoto: () => _clearPhoto(context),
-            onMerge: () => _mergePerson(context),
+            onMerge: widget.byCollective ? null : () => _mergePerson(context),
             mergeTooltip: widget.byProducer
                 ? 'Объединить продюсеров'
                 : 'Объединить артистов',
-            roleLabel: widget.byProducer ? 'Продюсер' : 'Артист',
+            onEditCollective:
+                widget.byCollective ? () => _editCollective(context) : null,
+            onDeleteCollective:
+                widget.byCollective ? () => _deleteCollective(context) : null,
+            roleLabel: widget.byCollective
+                ? 'Объединение'
+                : widget.byProducer
+                    ? 'Продюсер'
+                    : 'Артист',
           )),
+          if (widget.byCollective &&
+              collective != null &&
+              collective.members.isNotEmpty) ...[
+            const SliverToBoxAdapter(
+              child: _SectionTitle(title: 'Участники'),
+            ),
+            SliverToBoxAdapter(
+              child: _CollectiveMembersRow(
+                members: collective.members,
+                onOpen: (name) => openArtistPage(context, name),
+              ),
+            ),
+          ],
           if (widget.byProducer) ...[
             if (popular.isNotEmpty) ...[
               SliverToBoxAdapter(
@@ -693,6 +824,8 @@ class _Header extends StatelessWidget {
     required this.onClearPhoto,
     this.onMerge,
     this.mergeTooltip = 'Объединить артистов',
+    this.onEditCollective,
+    this.onDeleteCollective,
     this.roleLabel = 'Артист',
   });
 
@@ -703,11 +836,14 @@ class _Header extends StatelessWidget {
   final int trackCount;
   final int verifiedCount;
   final bool allVerified;
-  final VoidCallback onListen;  final VoidCallback onShuffle;
+  final VoidCallback onListen;
+  final VoidCallback onShuffle;
   final VoidCallback onPickPhoto;
   final VoidCallback onClearPhoto;
   final VoidCallback? onMerge;
   final String mergeTooltip;
+  final VoidCallback? onEditCollective;
+  final VoidCallback? onDeleteCollective;
   final String roleLabel;
 
   @override
@@ -728,6 +864,8 @@ class _Header extends StatelessWidget {
             onPickPhoto: onPickPhoto,
             onClearPhoto: onClearPhoto,
             onMerge: onMerge,
+            onEditCollective: onEditCollective,
+            onDeleteCollective: onDeleteCollective,
           ),
         ),
       ],
@@ -837,7 +975,13 @@ class _Header extends StatelessWidget {
   }
 }
 
-enum _HeaderMenuAction { pickPhoto, merge, clearPhoto }
+enum _HeaderMenuAction {
+  pickPhoto,
+  merge,
+  clearPhoto,
+  editCollective,
+  deleteCollective,
+}
 
 class _HeaderOverflowMenu extends StatelessWidget {
   const _HeaderOverflowMenu({
@@ -846,6 +990,8 @@ class _HeaderOverflowMenu extends StatelessWidget {
     required this.onPickPhoto,
     required this.onClearPhoto,
     this.onMerge,
+    this.onEditCollective,
+    this.onDeleteCollective,
   });
 
   final bool canClearPhoto;
@@ -853,6 +999,8 @@ class _HeaderOverflowMenu extends StatelessWidget {
   final VoidCallback onPickPhoto;
   final VoidCallback onClearPhoto;
   final VoidCallback? onMerge;
+  final VoidCallback? onEditCollective;
+  final VoidCallback? onDeleteCollective;
 
   @override
   Widget build(BuildContext context) {
@@ -876,6 +1024,10 @@ class _HeaderOverflowMenu extends StatelessWidget {
               onMerge?.call();
             case _HeaderMenuAction.clearPhoto:
               onClearPhoto();
+            case _HeaderMenuAction.editCollective:
+              onEditCollective?.call();
+            case _HeaderMenuAction.deleteCollective:
+              onDeleteCollective?.call();
           }
         },
         itemBuilder: (_) => [
@@ -886,6 +1038,14 @@ class _HeaderOverflowMenu extends StatelessWidget {
               label: 'Загрузить фото',
             ),
           ),
+          if (onEditCollective != null)
+            const PopupMenuItem(
+              value: _HeaderMenuAction.editCollective,
+              child: _HeaderMenuRow(
+                icon: Icons.edit_outlined,
+                label: 'Изменить',
+              ),
+            ),
           if (onMerge != null)
             PopupMenuItem(
               value: _HeaderMenuAction.merge,
@@ -902,6 +1062,14 @@ class _HeaderOverflowMenu extends StatelessWidget {
               child: _HeaderMenuRow(
                 icon: Icons.delete_outline,
                 label: 'Удалить фото',
+              ),
+            ),
+          if (onDeleteCollective != null)
+            const PopupMenuItem(
+              value: _HeaderMenuAction.deleteCollective,
+              child: _HeaderMenuRow(
+                icon: Icons.delete_forever_outlined,
+                label: 'Удалить объединение',
               ),
             ),
         ],
@@ -1191,6 +1359,83 @@ class _ProducerCollab {
   final String artist;
   final List<Track> tracks;
   final String? coverPath;
+}
+
+class _CollectiveMembersRow extends StatelessWidget {
+  const _CollectiveMembersRow({
+    required this.members,
+    required this.onOpen,
+  });
+
+  final List<String> members;
+  final ValueChanged<String> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
+    return SizedBox(
+      height: 168,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+        scrollDirection: Axis.horizontal,
+        itemCount: members.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final name = members[index];
+          final photo = library.artistPhotoPath(name);
+          return InkWell(
+            onTap: () => onOpen(name),
+            mouseCursor: SystemMouseCursors.click,
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              width: 112,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      width: 112,
+                      height: 112,
+                      child: photo == null
+                          ? ColoredBox(
+                              color: AppTheme.inkLift,
+                              child: Icon(
+                                Icons.person_rounded,
+                                color: AppTheme.paperMuted.withValues(
+                                  alpha: 0.55,
+                                ),
+                                size: 40,
+                              ),
+                            )
+                          : fileCover(
+                              context,
+                              photo,
+                              logicalSize: 112,
+                              filterQuality: FilterQuality.medium,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      color: AppTheme.paper,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      height: 1.15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _CollabCarousel extends StatefulWidget {

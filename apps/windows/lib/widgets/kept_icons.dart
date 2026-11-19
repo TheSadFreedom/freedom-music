@@ -147,6 +147,66 @@ class CalendarMonthGlyph extends StatelessWidget {
   }
 }
 
+/// Drawn people mark. Material `groups` / `people` codepoints come out blank
+/// in the Windows release icon font (same class of bug as repeat).
+class GroupsGlyph extends StatelessWidget {
+  const GroupsGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = IconTheme.of(context);
+    final size = theme.size ?? 24;
+    final color = theme.color ?? const Color(0xFF9AA89A);
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _GroupsGlyphPainter(color: color),
+    );
+  }
+}
+
+class _GroupsGlyphPainter extends CustomPainter {
+  const _GroupsGlyphPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
+
+    // Back person (left).
+    canvas.drawCircle(const Offset(8.2, 7.2), 3.1, paint);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(3.4, 11.2, 9.6, 8.4),
+        const Radius.circular(4.2),
+      ),
+      paint,
+    );
+
+    // Front person (right).
+    canvas.drawCircle(const Offset(15.8, 7.2), 3.1, paint);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(11.0, 11.2, 9.6, 8.4),
+        const Radius.circular(4.2),
+      ),
+      paint,
+    );
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _GroupsGlyphPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class QueueMusicGlyph extends StatelessWidget {
   const QueueMusicGlyph({super.key});
 

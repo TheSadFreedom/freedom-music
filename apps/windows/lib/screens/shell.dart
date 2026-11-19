@@ -19,6 +19,7 @@ import '../widgets/kept_icons.dart';
 import 'artists_screen.dart';
 import 'calendar_screen.dart';
 import 'chart_screen.dart';
+import 'collectives_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
 import 'producers_screen.dart';
@@ -38,9 +39,9 @@ class _AppShellState extends State<AppShell> {
   final Set<int> _openedTabs = {0};
 
   /// Per-tab navigators so detail pages don't cover the mini player.
-  /// Indices: 0..5 content, 6 settings. Sidecar mods are actions, not tabs.
+  /// Indices: 0..6 content, 7 settings. Sidecar mods are actions, not tabs.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    7,
+    8,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -61,8 +62,8 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-  static const _topCount = 6;
-  static const _settingsTab = 6;
+  static const _topCount = 7;
+  static const _settingsTab = 7;
 
   static const _tabItems = <_NavItem>[
     _NavItem(
@@ -79,6 +80,12 @@ class _AppShellState extends State<AppShell> {
       icon: Icons.headphones_rounded,
       selectedIcon: Icons.headphones_rounded,
       label: 'Продюсеры',
+    ),
+    _NavItem(
+      icon: Icons.people_outline,
+      selectedIcon: Icons.people_rounded,
+      label: 'Творческие объединения',
+      glyph: GroupsGlyph(),
     ),
     _NavItem(
       icon: Icons.bar_chart_outlined,
@@ -126,9 +133,10 @@ class _AppShellState extends State<AppShell> {
       0 => HomeScreen(key: _homeKey),
       1 => const ArtistsScreen(),
       2 => const ProducersScreen(),
-      3 => const ChartScreen(),
-      4 => const CalendarScreen(),
-      5 => const PlaylistsScreen(),
+      3 => const CollectivesScreen(),
+      4 => const ChartScreen(),
+      5 => const CalendarScreen(),
+      6 => const PlaylistsScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -140,15 +148,17 @@ class _AppShellState extends State<AppShell> {
             accent: switch (index) {
               1 => const Color(0xFF3D6B8B),
               2 => const Color(0xFF6B8B3D),
-              3 => const Color(0xFF8B6B3D),
-              4 => const Color(0xFF3D6E8B),
-              5 => const Color(0xFF5A3A6E),
+              3 => const Color(0xFF6B5A8B),
+              4 => const Color(0xFF8B6B3D),
+              5 => const Color(0xFF3D6E8B),
+              6 => const Color(0xFF5A3A6E),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
-              5 => const Color(0xFF3D2A5C),
-              4 => const Color(0xFF2A4A5C),
-              3 => const Color(0xFF5A3A2A),
+              6 => const Color(0xFF3D2A5C),
+              5 => const Color(0xFF2A4A5C),
+              4 => const Color(0xFF5A3A2A),
+              3 => const Color(0xFF3A2A4A),
               2 => const Color(0xFF3A4A2A),
               _ => const Color(0xFF2A4A5C),
             },
@@ -466,14 +476,16 @@ class _RailButton extends StatelessWidget {
             child: SizedBox(
               width: size,
               height: size,
-              child: IconTheme(
-                data: IconThemeData(color: color, size: 24),
-                child: item.glyph ??
-                    Icon(
-                      selected ? item.selectedIcon : item.icon,
-                      color: color,
-                      size: 24,
-                    ),
+              child: Center(
+                child: IconTheme(
+                  data: IconThemeData(color: color, size: 24),
+                  child: item.glyph ??
+                      Icon(
+                        selected ? item.selectedIcon : item.icon,
+                        color: color,
+                        size: 24,
+                      ),
+                ),
               ),
             ),
           ),
