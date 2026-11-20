@@ -64,7 +64,7 @@ class _CompactPlayerState extends State<CompactPlayer> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF161E1A), Color(0xFF0C1210), Color(0xFF121A16)],
+            colors: [Color(0xFF173038), Color(0xFF071519), Color(0xFF0C1F26)],
             stops: [0.0, 0.55, 1.0],
           ),
         ),
@@ -443,7 +443,7 @@ class _CompactProgressState extends State<_CompactProgress> {
                           color: _kYellow,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF0C1210),
+                            color: const Color(0xFF071519),
                             width: 1.5,
                           ),
                           boxShadow: [

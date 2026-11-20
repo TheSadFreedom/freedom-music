@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Aligned yellow «Слушать» + shuffle circle (Yandex-style).
+import '../theme/app_theme.dart';
+
+/// «Слушать» + shuffle circle in app accent colors.
 class ListenActions extends StatelessWidget {
   const ListenActions({
     super.key,
@@ -16,7 +18,6 @@ class ListenActions extends StatelessWidget {
   final List<Widget> extra;
   final bool center;
 
-  static const yellow = Color(0xFFFFDB4D);
   static const buttonHeight = 48.0;
   static const _h = buttonHeight;
 
@@ -27,8 +28,8 @@ class ListenActions extends StatelessWidget {
         height: _h,
         child: FilledButton.icon(
           style: FilledButton.styleFrom(
-            backgroundColor: yellow,
-            foregroundColor: Colors.black,
+            backgroundColor: AppTheme.lime,
+            foregroundColor: AppTheme.ink,
             padding: const EdgeInsets.symmetric(horizontal: 22),
             shape: const StadiumBorder(),
             enabledMouseCursor: SystemMouseCursors.click,
@@ -52,8 +53,8 @@ class ListenActions extends StatelessWidget {
               ? SystemMouseCursors.basic
               : SystemMouseCursors.click,
           style: IconButton.styleFrom(
-            backgroundColor: yellow,
-            foregroundColor: Colors.black,
+            backgroundColor: AppTheme.mossBright,
+            foregroundColor: AppTheme.ink,
             padding: EdgeInsets.zero,
           ),
           onPressed: onShuffle,

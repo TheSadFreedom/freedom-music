@@ -14,7 +14,6 @@ import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/image_pick.dart';
 import '../utils/playlist_actions.dart';
-import '../widgets/ambient_backdrop.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/listen_actions.dart';
@@ -28,9 +27,7 @@ import '../navigation/library_navigation.dart';
 import 'release_detail_screen.dart';
 import 'release_metadata_editor_screen.dart';
 
-const _kYellow = Color(0xFFFFDB4D);
-
-/// Yandex Music–inspired artist page.
+/// Artist / producer / collective detail page.
 class ArtistDetailScreen extends StatefulWidget {
   const ArtistDetailScreen({
     super.key,
@@ -359,7 +356,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           autofocus: true,
           keyboardType: TextInputType.url,
           style: GoogleFonts.figtree(color: AppTheme.paper),
-          cursorColor: _kYellow,
+          cursorColor: AppTheme.lime,
           decoration: InputDecoration(
             hintText: 'https://…',
             hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
@@ -382,7 +379,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text),
-            style: FilledButton.styleFrom(backgroundColor: _kYellow),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.lime,
+              foregroundColor: AppTheme.ink,
+            ),
             child: Text(
               'Загрузить',
               style: GoogleFonts.figtree(
@@ -463,7 +463,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: _kYellow),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.lime,
+              foregroundColor: AppTheme.ink,
+            ),
             child: Text(
               'Удалить',
               style: GoogleFonts.figtree(
@@ -553,6 +556,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             photoPath: photoPath,
             canClearPhoto: library.artistPhotoPath(widget.artist) != null,
             chartRank: widget.chartRank,
+            playCount: widget.playCount,
             trackCount: tracks.length,
             verifiedCount: verifiedCount,
             allVerified: allVerified,
@@ -815,6 +819,7 @@ class _Header extends StatelessWidget {
     required this.photoPath,
     required this.canClearPhoto,
     required this.chartRank,
+    required this.playCount,
     required this.trackCount,
     required this.verifiedCount,
     required this.allVerified,
@@ -833,6 +838,7 @@ class _Header extends StatelessWidget {
   final String? photoPath;
   final bool canClearPhoto;
   final int chartRank;
+  final int playCount;
   final int trackCount;
   final int verifiedCount;
   final bool allVerified;
@@ -849,15 +855,18 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 700;
+    final photoSize = wide ? 208.0 : 156.0;
+    final playsLabel = playCount > 0
+        ? '${NumberFormat.compact(locale: 'ru').format(playCount)} прослушиваний'
+        : 'Нет прослушиваний';
 
-    final photoSize = wide ? 180.0 : 140.0;
     final photo = Stack(
       clipBehavior: Clip.none,
       children: [
         _ArtistPhoto(path: photoPath, size: photoSize),
         Positioned(
-          top: 4,
-          right: 4,
+          top: 6,
+          right: 6,
           child: _HeaderOverflowMenu(
             canClearPhoto: canClearPhoto,
             mergeTooltip: mergeTooltip,
@@ -871,19 +880,33 @@ class _Header extends StatelessWidget {
       ],
     );
 
+    final rolePill = DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.lime.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.lime.withValues(alpha: 0.28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        child: Text(
+          roleLabel.toUpperCase(),
+          style: GoogleFonts.figtree(
+            color: AppTheme.lime,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+
     final info = Column(
       crossAxisAlignment:
           wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
-        Text(
-          roleLabel,
-          style: GoogleFonts.figtree(
-            color: AppTheme.paperMuted,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
+        rolePill,
+        const SizedBox(height: 14),
         Row(
           mainAxisAlignment:
               wide ? MainAxisAlignment.start : MainAxisAlignment.center,
@@ -895,43 +918,49 @@ class _Header extends StatelessWidget {
                 textAlign: wide ? TextAlign.left : TextAlign.center,
                 style: GoogleFonts.syne(
                   color: AppTheme.paper,
-                  fontSize: wide ? 44 : 32,
+                  fontSize: wide ? 48 : 34,
                   fontWeight: FontWeight.w800,
-                  height: 1.05,
-                  letterSpacing: -1,
+                  height: 0.98,
+                  letterSpacing: -1.4,
                 ),
               ),
             ),
             if (allVerified) ...[
-              const SizedBox(width: 10),
-              VerifiedBadge(verified: true, size: wide ? 28 : 22),
+              const SizedBox(width: 12),
+              VerifiedBadge(verified: true, size: wide ? 30 : 24),
             ],
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 16),
         Wrap(
           alignment: wide ? WrapAlignment.start : WrapAlignment.center,
-          spacing: 16,
-          runSpacing: 6,
+          spacing: 8,
+          runSpacing: 8,
           children: [
             _MetaChip(
-              icon: Icons.emoji_events_outlined,
-              text: chartRank > 0 ? '$chartRank место в топе' : 'Нет в топе',
+              icon: Icons.graphic_eq_rounded,
+              text: playsLabel,
+              accent: true,
             ),
             _MetaChip(
-              icon: Icons.music_note_outlined,
+              icon: Icons.music_note_rounded,
               text: '$trackCount треков',
             ),
+            if (chartRank > 0)
+              _MetaChip(
+                icon: Icons.emoji_events_rounded,
+                text: '$chartRank в топе',
+              ),
             if (verifiedCount > 0)
               _MetaChip(
                 icon: Icons.verified_rounded,
                 text: allVerified
                     ? 'Все проверены'
-                    : '$verifiedCount из $trackCount проверены',
+                    : '$verifiedCount / $trackCount проверены',
               ),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         ListenActions(
           onListen: onListen,
           onShuffle: onShuffle,
@@ -940,36 +969,106 @@ class _Header extends StatelessWidget {
       ],
     );
 
-    return SizedBox(
-      width: double.infinity,
-      child: Stack(
-        children: [
-          const Positioned.fill(
-            child: AmbientBackdrop(
-              accent: Color(0xFF3D6B8B),
-              secondary: Color(0xFF2A4A5C),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.lerp(AppTheme.inkLift, AppTheme.moss, 0.22)!,
+              AppTheme.inkLift,
+              Color.lerp(AppTheme.inkLift, AppTheme.lime, 0.14)!,
+            ],
+            stops: const [0.0, 0.52, 1.0],
+          ),
+          border: Border.all(
+            color: AppTheme.paper.withValues(alpha: 0.08),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.moss.withValues(alpha: 0.16),
+              blurRadius: 36,
+              offset: const Offset(0, 18),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
-            child: wide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      photo,
-                      const SizedBox(width: 28),
-                      Expanded(child: info),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      photo,
-                      const SizedBox(height: 20),
-                      info,
-                    ],
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -60,
+                top: -70,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          AppTheme.mossBright.withValues(alpha: 0.28),
+                          AppTheme.mossBright.withValues(alpha: 0),
+                        ],
+                      ),
+                    ),
                   ),
+                ),
+              ),
+              Positioned(
+                left: wide ? 180 : -40,
+                bottom: -90,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 260,
+                    height: 260,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          AppTheme.lime.withValues(alpha: 0.16),
+                          AppTheme.lime.withValues(alpha: 0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  wide ? 28 : 22,
+                  wide ? 30 : 24,
+                  wide ? 28 : 22,
+                  wide ? 30 : 24,
+                ),
+                child: wide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          photo,
+                          const SizedBox(width: 32),
+                          Expanded(child: info),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          photo,
+                          const SizedBox(height: 22),
+                          info,
+                        ],
+                      ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1118,10 +1217,10 @@ class _ArtistPhoto extends StatelessWidget {
     final file = path != null && File(path!).existsSync() ? File(path!) : null;
     final image = file == null
         ? ColoredBox(
-            color: AppTheme.inkLift,
+            color: Color.lerp(AppTheme.ink, AppTheme.inkLift, 0.7)!,
             child: Icon(
-              Icons.person,
-              size: size * 0.45,
+              Icons.person_rounded,
+              size: size * 0.42,
               color: AppTheme.mossBright,
             ),
           )
@@ -1139,17 +1238,37 @@ class _ArtistPhoto extends StatelessWidget {
         child: Container(
           width: size,
           height: size,
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
+            gradient: const SweepGradient(
+              colors: [
+                AppTheme.moss,
+                AppTheme.mossBright,
+                AppTheme.lime,
+                AppTheme.moss,
+              ],
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.45),
+                color: AppTheme.moss.withValues(alpha: 0.35),
                 blurRadius: 28,
                 offset: const Offset(0, 12),
               ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
+              ),
             ],
           ),
-          child: ClipOval(child: image),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppTheme.ink, width: 3),
+            ),
+            child: ClipOval(child: image),
+          ),
         ),
       ),
     );
@@ -1198,27 +1317,48 @@ void _showArtistPhoto(BuildContext context, File? file) {
 }
 
 class _MetaChip extends StatelessWidget {
-  const _MetaChip({required this.icon, required this.text});
+  const _MetaChip({
+    required this.icon,
+    required this.text,
+    this.accent = false,
+  });
 
   final IconData icon;
   final String text;
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: AppTheme.paperMuted),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: GoogleFonts.figtree(
-            color: AppTheme.paperMuted,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+    final color = accent ? AppTheme.mossBright : AppTheme.paperMuted;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink.withValues(alpha: accent ? 0.42 : 0.28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: accent
+              ? AppTheme.mossBright.withValues(alpha: 0.35)
+              : AppTheme.paper.withValues(alpha: 0.1),
         ),
-      ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: color),
+            const SizedBox(width: 7),
+            Text(
+              text,
+              style: GoogleFonts.figtree(
+                color: accent ? AppTheme.paper : AppTheme.paperMuted,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

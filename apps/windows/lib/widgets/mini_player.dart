@@ -23,10 +23,6 @@ import 'track_overflow_menu.dart';
 import 'track_title_line.dart';
 import '../utils/trash_actions.dart';
 
-const _kYellow = Color(0xFFFFDB4D);
-const _kBar = Color(0xFF232323);
-const _kIcon = Color(0xFFD4D0C8);
-const _kIconDim = Color(0xFF7A766E);
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key, this.barKey});
@@ -387,15 +383,29 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 child: Container(
                   clipBehavior: Clip.none,
                   decoration: BoxDecoration(
-                    color: _kBar,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color.lerp(AppTheme.inkLift, AppTheme.moss, 0.16)!,
+                        AppTheme.inkLift,
+                        Color.lerp(AppTheme.inkLift, AppTheme.lime, 0.1)!,
+                      ],
+                      stops: const [0.0, 0.55, 1.0],
+                    ),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.06),
+                      color: AppTheme.paper.withValues(alpha: 0.08),
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        blurRadius: 24,
+                        color: AppTheme.moss.withValues(alpha: 0.14),
+                        blurRadius: 28,
+                        offset: const Offset(0, 10),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 22,
                         offset: const Offset(0, 8),
                       ),
                     ],
@@ -561,7 +571,7 @@ class _ProgressStripState extends State<_ProgressStrip> {
                 Positioned.fill(
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
+                      top: Radius.circular(20),
                     ),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
@@ -589,9 +599,16 @@ class _ProgressStripState extends State<_ProgressStrip> {
                       child: Container(
                         width: thumbR * 2,
                         height: thumbR * 2,
-                        decoration: const BoxDecoration(
-                          color: _kYellow,
+                        decoration: BoxDecoration(
+                          color: AppTheme.lime,
                           shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.lime.withValues(alpha: 0.45),
+                              blurRadius: 8,
+                              spreadRadius: 0.5,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -624,7 +641,7 @@ class _ProgressTrackPainter extends CustomPainter {
     );
     canvas.drawRRect(
       track,
-      Paint()..color = Colors.white.withValues(alpha: 0.12),
+      Paint()..color = AppTheme.paper.withValues(alpha: 0.12),
     );
     if (progress > 0) {
       canvas.drawRRect(
@@ -635,7 +652,12 @@ class _ProgressTrackPainter extends CustomPainter {
           trackHeight,
           Radius.circular(trackHeight / 2),
         ),
-        Paint()..color = _kYellow,
+        Paint()
+          ..shader = LinearGradient(
+            colors: [AppTheme.mossBright, AppTheme.lime],
+          ).createShader(
+            Rect.fromLTWH(0, 0, size.width * progress, trackHeight),
+          ),
       );
     }
   }
@@ -655,9 +677,9 @@ class _TimeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        color: AppTheme.inkLift,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.lime.withValues(alpha: 0.25)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
@@ -667,7 +689,7 @@ class _TimeChip extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Text(
           text,
           style: GoogleFonts.figtree(
@@ -710,17 +732,18 @@ class _TrackInfo extends StatelessWidget {
                         note: track.displayNote,
                         verified: track.verified,
                         onTap: () => openAlbumForTrack(context, track),
-                        style: GoogleFonts.figtree(
+                        style: GoogleFonts.syne(
                           color: AppTheme.paper,
                           fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                          height: 1.15,
+                          fontSize: 15,
+                          height: 1.1,
+                          letterSpacing: -0.2,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
@@ -731,8 +754,9 @@ class _TrackInfo extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.figtree(
-                        color: _kIconDim,
-                        fontSize: 12,
+                        color: AppTheme.paperMuted,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
                         height: 1.15,
                       ),
                     ),
@@ -757,16 +781,31 @@ class _Cover extends StatelessWidget {
   Widget build(BuildContext context) {
     final filePath = path;
     final hasFile = filePath != null && File(filePath).existsSync();
-    Widget child = const ColoredBox(
-      color: Color(0xFF2E2E2E),
-      child: Icon(Icons.album, color: _kIconDim, size: 22),
+    Widget child = ColoredBox(
+      color: Color.lerp(AppTheme.ink, AppTheme.inkLift, 0.55)!,
+      child: const Icon(Icons.album_rounded, color: AppTheme.paperMuted, size: 22),
     );
     if (hasFile) {
       child = Image.file(File(filePath), fit: BoxFit.cover);
     }
-    final art = ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: SizedBox(width: 46, height: 46, child: child),
+    final art = Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.moss.withValues(alpha: 0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: child,
+      ),
     );
     if (!hasFile) return art;
     return MouseRegion(
@@ -970,11 +1009,21 @@ class _PlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return Container(
       width: size,
       height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.lime.withValues(alpha: 0.4),
+            blurRadius: 16,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
       child: Material(
-        color: _kYellow,
+        color: AppTheme.lime,
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
@@ -984,7 +1033,7 @@ class _PlayButton extends StatelessWidget {
             offset: Offset(playing ? 0 : size * 0.02, 0),
             child: Icon(
               playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: Colors.black,
+              color: AppTheme.ink,
               size: size * 0.55,
             ),
           ),
@@ -1031,10 +1080,10 @@ class _IconBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = !enabled
-        ? _kIconDim.withValues(alpha: 0.35)
+        ? AppTheme.paperMuted.withValues(alpha: 0.35)
         : active
-        ? _kYellow
-        : _kIcon;
+        ? AppTheme.lime
+        : AppTheme.paper;
     return IconButton(
       tooltip: tooltip.isEmpty ? null : tooltip,
       onPressed: enabled ? onPressed : null,
@@ -1065,7 +1114,7 @@ class _RepeatMark extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = IconTheme.of(context);
     final size = theme.size ?? 22;
-    final color = theme.color ?? _kIcon;
+    final color = theme.color ?? AppTheme.paper;
     return CustomPaint(
       size: Size.square(size),
       painter: _RepeatMarkPainter(color: color, one: one),
@@ -1161,15 +1210,15 @@ class _YandexVolumeCapsule extends StatelessWidget {
           height: height,
           clipBehavior: Clip.none,
           decoration: BoxDecoration(
-            color: const Color(0xFF2C2C2C),
+            color: AppTheme.inkLift,
             borderRadius: BorderRadius.circular(width / 2),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
+              color: AppTheme.lime.withValues(alpha: 0.22),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.45),
+                color: AppTheme.moss.withValues(alpha: 0.18),
                 blurRadius: 18,
                 offset: const Offset(0, 6),
               ),
@@ -1220,7 +1269,7 @@ class _VolumeCapsulePainter extends CustomPainter {
     final trackH = (trackBottom - trackTop).clamp(0.0, size.height);
 
     final railPaint = Paint()
-      ..color = const Color(0xFF555555)
+      ..color = AppTheme.paper.withValues(alpha: 0.22)
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(cx, trackTop), Offset(cx, trackBottom), railPaint);
@@ -1228,14 +1277,18 @@ class _VolumeCapsulePainter extends CustomPainter {
     final fillTop = trackBottom - trackH * volume;
     if (volume > 0.001) {
       final fillPaint = Paint()
-        ..color = _kYellow
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppTheme.mossBright, AppTheme.lime],
+        ).createShader(Rect.fromLTRB(cx - 3, fillTop, cx + 3, trackBottom))
         ..strokeWidth = 6
         ..strokeCap = StrokeCap.round;
       canvas.drawLine(Offset(cx, fillTop), Offset(cx, trackBottom), fillPaint);
     }
 
     final thumbY = fillTop.clamp(trackTop, trackBottom);
-    canvas.drawCircle(Offset(cx, thumbY), thumbR, Paint()..color = _kYellow);
+    canvas.drawCircle(Offset(cx, thumbY), thumbR, Paint()..color = AppTheme.lime);
     canvas.drawCircle(
       Offset(cx, thumbY),
       thumbR,
@@ -1249,6 +1302,35 @@ class _VolumeCapsulePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _VolumeCapsulePainter oldDelegate) =>
       oldDelegate.volume != volume;
+}
+
+class _QueueCover extends StatelessWidget {
+  const _QueueCover({required this.path});
+
+  final String? path;
+
+  static const _size = 40.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final filePath = path;
+    final hasFile = filePath != null && File(filePath).existsSync();
+    final child = hasFile
+        ? Image.file(File(filePath), fit: BoxFit.cover)
+        : ColoredBox(
+            color: Color.lerp(AppTheme.ink, AppTheme.inkLift, 0.45)!,
+            child: const Icon(
+              Icons.album_rounded,
+              color: AppTheme.paperMuted,
+              size: 18,
+            ),
+          );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(width: _size, height: _size, child: child),
+    );
+  }
 }
 
 /// Floating queue card above the bar — dock height stays on the bar only.
@@ -1267,9 +1349,6 @@ class _QueueWindow extends StatelessWidget {
   final void Function(int oldIndex, int newIndex) onReorder;
   final VoidCallback onClose;
 
-  static const _card = Color(0xFF1C1C1C);
-  static const _cardLift = Color(0xFF2A2A2A);
-
   @override
   Widget build(BuildContext context) {
     final screenH = MediaQuery.sizeOf(context).height;
@@ -1284,13 +1363,18 @@ class _QueueWindow extends StatelessWidget {
         height: height,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: _card,
+            color: AppTheme.inkLift,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            border: Border.all(color: AppTheme.paper.withValues(alpha: 0.08)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.45),
+                color: AppTheme.moss.withValues(alpha: 0.16),
                 blurRadius: 28,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 24,
                 offset: const Offset(0, 10),
               ),
             ],
@@ -1305,8 +1389,8 @@ class _QueueWindow extends StatelessWidget {
                     Expanded(
                       child: Text(
                         'Очередь · ${queue.length}',
-                        style: GoogleFonts.figtree(
-                          color: Colors.white,
+                        style: GoogleFonts.syne(
+                          color: AppTheme.paper,
                           fontWeight: FontWeight.w700,
                           fontSize: 18,
                         ),
@@ -1315,7 +1399,7 @@ class _QueueWindow extends StatelessWidget {
                     Text(
                       'перетащите',
                       style: GoogleFonts.figtree(
-                        color: _kIconDim,
+                        color: AppTheme.paperMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -1327,14 +1411,17 @@ class _QueueWindow extends StatelessWidget {
                       icon: Container(
                         width: 32,
                         height: 32,
-                        decoration: const BoxDecoration(
-                          color: _cardLift,
+                        decoration: BoxDecoration(
+                          color: AppTheme.ink.withValues(alpha: 0.55),
                           shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppTheme.paper.withValues(alpha: 0.1),
+                          ),
                         ),
                         child: const Icon(
                           Icons.close,
                           size: 18,
-                          color: Colors.white,
+                          color: AppTheme.paper,
                         ),
                       ),
                     ),
@@ -1347,7 +1434,7 @@ class _QueueWindow extends StatelessWidget {
                         child: Text(
                           'Очередь пуста',
                           style: GoogleFonts.figtree(
-                            color: _kIconDim,
+                            color: AppTheme.paperMuted,
                             fontSize: 14,
                           ),
                         ),
@@ -1371,7 +1458,7 @@ class _QueueWindow extends StatelessWidget {
                               ),
                               child: Material(
                                 color: current
-                                    ? _cardLift
+                                    ? AppTheme.ink.withValues(alpha: 0.55)
                                     : Colors.transparent,
                                 borderRadius: BorderRadius.circular(12),
                                 child: InkWell(
@@ -1380,8 +1467,8 @@ class _QueueWindow extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(12),
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
+                                      horizontal: 10,
+                                      vertical: 6,
                                     ),
                                     child: Row(
                                       children: [
@@ -1391,13 +1478,15 @@ class _QueueWindow extends StatelessWidget {
                                             '${index + 1}',
                                             style: GoogleFonts.figtree(
                                               color: current
-                                                  ? _kYellow
-                                                  : _kIconDim,
+                                                  ? AppTheme.lime
+                                                  : AppTheme.paperMuted,
                                               fontSize: 12,
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                         ),
+                                        _QueueCover(path: t.coverPath),
+                                        const SizedBox(width: 10),
                                         Expanded(
                                           child: TrackTitleLine(
                                             title: t.displayArtist.isEmpty
@@ -1407,7 +1496,7 @@ class _QueueWindow extends StatelessWidget {
                                             verified: t.verified,
                                             style: GoogleFonts.figtree(
                                               color: current
-                                                  ? _kYellow
+                                                  ? AppTheme.lime
                                                   : AppTheme.paper,
                                               fontWeight: current
                                                   ? FontWeight.w700
@@ -1421,7 +1510,7 @@ class _QueueWindow extends StatelessWidget {
                                           child: Icon(
                                             Icons.drag_handle_rounded,
                                             size: 18,
-                                            color: _kIconDim.withValues(
+                                            color: AppTheme.paperMuted.withValues(
                                               alpha: 0.7,
                                             ),
                                           ),

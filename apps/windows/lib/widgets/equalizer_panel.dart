@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 
 import '../models/equalizer_state.dart';
 import '../services/player_service.dart';
+import '../theme/app_theme.dart';
 
-const _kYellow = Color(0xFFFFDB4D);
-const _kCard = Color(0xFF1C1C1C);
-const _kCardLift = Color(0xFF2A2A2A);
-const _kTrack = Color(0xFF4A4A4A);
+const _kYellow = AppTheme.lime;
+const _kCard = AppTheme.inkLift;
+const _kCardLift = AppTheme.ink;
+const _kTrack = Color(0xFF3A5560);
 
 /// Floating graphic EQ card styled like Yandex Music.
 class EqualizerPanel extends StatefulWidget {

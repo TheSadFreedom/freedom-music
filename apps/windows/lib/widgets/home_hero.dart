@@ -83,9 +83,9 @@ class _HomeStageState extends State<HomeStage> with TickerProviderStateMixin {
                   center: Alignment(0, -0.1),
                   radius: 1.1,
                   colors: [
-                    Color(0x000C1210),
-                    Color(0x990C1210),
-                    Color(0xE60C1210),
+                    Color(0x00071519),
+                    Color(0x99071519),
+                    Color(0xE6071519),
                   ],
                   stops: [0.35, 0.75, 1.0],
                 ),
@@ -253,16 +253,16 @@ class _VinylPainter extends CustomPainter {
       c,
       r,
       Paint()
-        ..color = const Color(0xFF1A2420)
+        ..color = const Color(0xFF0F242C)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24),
     );
 
-    canvas.drawCircle(c, r, Paint()..color = const Color(0xFF141A18));
+    canvas.drawCircle(c, r, Paint()..color = const Color(0xFF0B1C22));
 
     final groove = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = const Color(0xFF2A3530);
+      ..color = const Color(0xFF1F3A42);
     for (var i = 8; i < 42; i++) {
       canvas.drawCircle(c, r * (i / 48), groove);
     }
@@ -288,7 +288,7 @@ class _VinylPainter extends CustomPainter {
       r * 0.36,
       Paint()..color = AppTheme.moss.withValues(alpha: 0.55),
     );
-    canvas.drawCircle(c, r * 0.30, Paint()..color = const Color(0xFF0E1613));
+    canvas.drawCircle(c, r * 0.30, Paint()..color = const Color(0xFF071519));
 
     // Offset label mark so the disc doesn't look static while spinning.
     final mark = Offset(c.dx + r * 0.18, c.dy - r * 0.08);
@@ -330,25 +330,48 @@ class _MeshPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    canvas.drawRect(rect, Paint()..color = AppTheme.ink);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(AppTheme.ink, AppTheme.inkLift, 0.55)!,
+            AppTheme.ink,
+            Color.lerp(AppTheme.ink, AppTheme.moss, 0.12)!,
+          ],
+        ).createShader(rect),
+    );
 
     final energy = playing ? 1.15 : 1.0;
     final o1 = Offset(size.width * 0.5, size.height * (0.42 + breathe * 0.02));
-    final o2 = Offset(size.width * 0.35, size.height * 0.72);
+    final o2 = Offset(size.width * 0.72, size.height * 0.28);
+    final o3 = Offset(size.width * 0.32, size.height * 0.74);
 
+    // Coral wash (primary accent).
     canvas.drawCircle(
       o1,
       size.shortestSide * 0.42 * energy,
       Paint()
-        ..color = AppTheme.moss.withValues(alpha: 0.26)
+        ..color = AppTheme.moss.withValues(alpha: 0.22)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 80),
     );
+    // Warm highlight.
     canvas.drawCircle(
       o2,
-      size.shortestSide * 0.3,
+      size.shortestSide * 0.28,
       Paint()
-        ..color = AppTheme.lime.withValues(alpha: 0.07)
+        ..color = AppTheme.mossBright.withValues(alpha: 0.14)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 70),
+    );
+    // Mint counterweight.
+    canvas.drawCircle(
+      o3,
+      size.shortestSide * 0.34,
+      Paint()
+        ..color = AppTheme.lime.withValues(alpha: 0.12)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 75),
     );
   }
 
@@ -385,7 +408,11 @@ class _WavePainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            AppTheme.mossBright.withValues(alpha: playing ? 0.35 : 0.16),
+            Color.lerp(
+              AppTheme.lime,
+              AppTheme.mossBright,
+              playing ? 0.35 : 0.2,
+            )!.withValues(alpha: playing ? 0.32 : 0.14),
             AppTheme.ink.withValues(alpha: 0),
           ],
         ).createShader(Offset.zero & size),

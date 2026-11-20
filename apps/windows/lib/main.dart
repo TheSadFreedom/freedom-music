@@ -55,7 +55,7 @@ Future<void> main() async {
       size: Size(1280, 720),
       minimumSize: Size(880, 560),
       center: true,
-      backgroundColor: Color(0xFF0C1210),
+      backgroundColor: Color(0xFF071519),
       skipTaskbar: false,
       title: 'Freedom Music',
       titleBarStyle: TitleBarStyle.hidden,

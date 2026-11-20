@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Listening-room palette: ink surface, moss accent, warm paper text.
+/// App palette: deep teal ink, coral accents, mint CTA, cool paper text.
 abstract final class AppTheme {
-  static const ink = Color(0xFF0C1210);
-  static const inkLift = Color(0xFF15201C);
-  static const moss = Color(0xFF3D8B6E);
-  static const mossBright = Color(0xFF5CBA92);
-  static const lime = Color(0xFFC8F071);
-  static const paper = Color(0xFFF2EDE4);
-  static const paperMuted = Color(0xFFA8A297);
+  static const ink = Color(0xFF071519);
+  static const inkLift = Color(0xFF173038);
+  static const moss = Color(0xFFF27D70);
+  static const mossBright = Color(0xFFFFAA91);
+  /// Mint CTA / selected highlight.
+  static const lime = Color(0xFF7DE5CE);
+  static const paper = Color(0xFFEDF9F5);
+  static const paperMuted = Color(0xFF91AFB3);
 
   static ThemeData dark() {
     final base =

@@ -16,8 +16,8 @@ class PillSegmented<T> extends StatelessWidget {
   final T selected;
   final ValueChanged<T> onChanged;
 
-  /// Matches Listen / chart accent yellow used elsewhere in the app.
-  static const accent = Color(0xFFFFDB4D);
+  /// Selected pill — mint CTA from app palette.
+  static const accent = AppTheme.lime;
 
   @override
   Widget build(BuildContext context) {
