@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'network_util.dart';
 
 /// Scrapes Yandex Music artist HTML (no api.music.yandex.net).
 ///
@@ -90,21 +91,23 @@ class YmClient {
   }
 
   Future<String> _getHtml(String url) async {
-    final response = await _http.get(
-      Uri.parse(url),
-      headers: {
-        'User-Agent': _ua,
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
-      },
-    );
-    if (response.statusCode == 404) {
-      throw StateError('Артист не найден');
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Страница недоступна (${response.statusCode})');
-    }
-    return utf8.decode(response.bodyBytes, allowMalformed: true);
+    return withNetworkRetry(() async {
+      final response = await _http.get(
+        Uri.parse(url),
+        headers: {
+          'User-Agent': _ua,
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+        },
+      );
+      if (response.statusCode == 404) {
+        throw StateError('Артист не найден');
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Страница недоступна (${response.statusCode})');
+      }
+      return utf8.decode(response.bodyBytes, allowMalformed: true);
+    });
   }
 
   Map<String, dynamic>? _parsePreloadedFirstAlbum(String html) {

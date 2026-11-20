@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../new_releases/models.dart';
+import '../new_releases/network_util.dart';
 import '../new_releases/release_fetch.dart';
 import '../new_releases/source_icons.dart';
 import '../new_releases/watchlist_store.dart';
@@ -143,7 +145,7 @@ class _NewReleasesScreenState extends State<NewReleasesScreen> {
       await _persist();
     } catch (e) {
       setState(() {
-        _error = '$e'.replaceFirst('Bad state: ', '');
+        _error = formatReleaseError(e);
         _status = null;
       });
     } finally {
@@ -267,9 +269,9 @@ class _NewReleasesScreenState extends State<NewReleasesScreen> {
                     : SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                         child: Wrap(
-                          spacing: 14,
-                          runSpacing: 14,
-                          alignment: WrapAlignment.start,
+                          spacing: 16,
+                          runSpacing: 16,
+                          alignment: WrapAlignment.center,
                           children: [
                             for (final artist in _artists)
                               SizedBox(
@@ -470,13 +472,14 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 20, 16, 4),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Новинки',
-              style: TextStyle(
+              style: GoogleFonts.syne(
                 fontSize: 28,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 color: AppTheme.paper,
+                letterSpacing: -0.6,
               ),
             ),
           ),
@@ -562,146 +565,245 @@ class _Empty extends StatelessWidget {
   }
 }
 
-class _ReleaseTile extends StatelessWidget {
+class _ReleaseTile extends StatefulWidget {
   const _ReleaseTile({
     required this.artist,
     required this.onOpen,
     required this.onDelete,
   });
 
-  static const double cardWidth = 168;
-  static const double cardHeight = 268;
+  static const double cardWidth = 200;
+  static const double cardHeight = 320;
 
   final WatchedArtist artist;
   final VoidCallback? onOpen;
   final VoidCallback? onDelete;
 
   @override
+  State<_ReleaseTile> createState() => _ReleaseTileState();
+}
+
+class _ReleaseTileState extends State<_ReleaseTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final artist = widget.artist;
     final meta = [
       if (artist.releaseDate.isNotEmpty) artist.releaseDate,
       if (artist.releaseType.isNotEmpty) artist.releaseType,
     ].join(' · ');
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppTheme.inkLift.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: artist.coverUrl.isEmpty
-                          ? const ColoredBox(
-                              color: Color(0xFF2A2A2A),
-                              child: Icon(
-                                Icons.album,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: widget.onOpen == null
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        transform: Matrix4.translationValues(0, _hovered ? -4 : 0, 0),
+        transformAlignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.lerp(AppTheme.inkLift, AppTheme.moss, 0.18)!,
+              AppTheme.inkLift,
+              Color.lerp(AppTheme.inkLift, AppTheme.lime, 0.1)!,
+            ],
+          ),
+          border: Border.all(
+            color: _hovered
+                ? AppTheme.lime.withValues(alpha: 0.35)
+                : AppTheme.paper.withValues(alpha: 0.08),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.moss.withValues(alpha: _hovered ? 0.28 : 0.14),
+              blurRadius: _hovered ? 28 : 18,
+              offset: Offset(0, _hovered ? 14 : 8),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 11,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    artist.coverUrl.isEmpty
+                        ? ColoredBox(
+                            color: Color.lerp(
+                              AppTheme.ink,
+                              AppTheme.inkLift,
+                              0.5,
+                            )!,
+                            child: const Icon(
+                              Icons.album_rounded,
+                              color: AppTheme.paperMuted,
+                              size: 48,
+                            ),
+                          )
+                        : Image.network(
+                            artist.coverUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: Color.lerp(
+                                AppTheme.ink,
+                                AppTheme.inkLift,
+                                0.5,
+                              )!,
+                              child: const Icon(
+                                Icons.album_rounded,
                                 color: AppTheme.paperMuted,
-                                size: 40,
-                              ),
-                            )
-                          : Image.network(
-                              artist.coverUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => const ColoredBox(
-                                color: Color(0xFF2A2A2A),
-                                child: Icon(
-                                  Icons.album,
-                                  color: AppTheme.paperMuted,
-                                  size: 40,
-                                ),
+                                size: 48,
                               ),
                             ),
+                          ),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0x33071519),
+                            Color(0x00071519),
+                            Color(0xCC071519),
+                          ],
+                          stops: [0, 0.45, 1],
+                        ),
+                      ),
                     ),
-                  ),
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: SourceBadge(source: artist.source),
-                  ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Material(
-                      color: Colors.black54,
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: onDelete,
-                        child: const Padding(
-                          padding: EdgeInsets.all(4),
-                          child: Icon(
-                            Icons.close_rounded,
-                            color: AppTheme.paper,
-                            size: 16,
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: SourceBadge(source: artist.source, size: 26),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: AppTheme.ink.withValues(alpha: 0.55),
+                        shape: CircleBorder(
+                          side: BorderSide(
+                            color: AppTheme.paper.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: widget.onDelete,
+                          child: const SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: Icon(
+                              Icons.close_rounded,
+                              color: AppTheme.paper,
+                              size: 16,
+                            ),
                           ),
                         ),
                       ),
                     ),
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            artist.releaseTitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.syne(
+                              color: AppTheme.paper,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              height: 1.1,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            artist.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.figtree(
+                              color: AppTheme.paper.withValues(alpha: 0.82),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 5,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (meta.isNotEmpty)
+                        Text(
+                          meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.figtree(
+                            color: AppTheme.paperMuted,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      const Spacer(),
+                      SizedBox(
+                        height: 38,
+                        child: FilledButton(
+                          onPressed: widget.onOpen,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: widget.onOpen == null
+                                ? AppTheme.ink.withValues(alpha: 0.45)
+                                : AppTheme.lime,
+                            foregroundColor: AppTheme.ink,
+                            disabledForegroundColor:
+                                AppTheme.paperMuted.withValues(alpha: 0.6),
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: GoogleFonts.figtree(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          child: const Text('К релизу'),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              artist.releaseTitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.paper,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              artist.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.paperMuted,
-                fontSize: 12,
-                height: 1.25,
-              ),
-            ),
-            if (meta.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                meta,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppTheme.paperMuted, fontSize: 11),
+                ),
               ),
             ],
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 34,
-              child: OutlinedButton(
-                onPressed: onOpen,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.paper,
-                  side: const BorderSide(color: Color(0xFF3A3A3A)),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'К релизу',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

@@ -48,3 +48,5 @@ flutter:
   assets:
     - assets/app_icon.ico
     - assets/verified_check.svg
+    - assets/source_spotify.svg
+    - assets/source_yandex_music.svg

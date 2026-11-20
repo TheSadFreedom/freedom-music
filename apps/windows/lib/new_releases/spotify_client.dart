@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'network_util.dart';
 
 /// Scrapes open.spotify.com artist HTML (no Spotify Web API).
 ///
@@ -331,25 +332,27 @@ class SpotifyClient {
   }
 
   Future<String> _getHtml(String url) async {
-    final response = await _http.get(
-      Uri.parse(url),
-      headers: {
-        'User-Agent': _ua,
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8',
-      },
-    );
-    if (response.statusCode == 404) {
-      throw StateError('Артист не найден');
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Страница недоступна (${response.statusCode})');
-    }
-    final body = utf8.decode(response.bodyBytes, allowMalformed: true);
-    if (body.contains('recaptcha') && !body.contains('initialState')) {
-      throw StateError('Spotify заблокировал запрос (captcha)');
-    }
-    return body;
+    return withNetworkRetry(() async {
+      final response = await _http.get(
+        Uri.parse(url),
+        headers: {
+          'User-Agent': _ua,
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8',
+        },
+      );
+      if (response.statusCode == 404) {
+        throw StateError('Артист не найден');
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Страница недоступна (${response.statusCode})');
+      }
+      final body = utf8.decode(response.bodyBytes, allowMalformed: true);
+      if (body.contains('recaptcha') && !body.contains('initialState')) {
+        throw StateError('Spotify заблокировал запрос (captcha)');
+      }
+      return body;
+    });
   }
 
   String _bestCover(Object? coverArt) {
