@@ -162,6 +162,128 @@ void main() {
     expect(guest.appearances.single.credit, 'aikko');
   });
 
+  test('artistHasOwnReleases is false for appearance-only guests', () {
+    final tracks = [
+      _track(key: '1', title: 'A', artist: 'aikko', album: 'бэкрумс', number: 1),
+      _track(
+        key: '2',
+        title: 'B',
+        artist: 'aikko, гость',
+        album: 'бэкрумс',
+        number: 2,
+      ),
+      _track(key: '3', title: 'C', artist: 'aikko', album: 'бэкрумс', number: 3),
+    ];
+    expect(
+      artistHasOwnReleases(
+        artistTracks: [tracks[1]],
+        libraryTracks: tracks,
+        isThisArtist: (name) => name.toLowerCase() == 'гость',
+        cardName: (name) => name,
+      ),
+      isFalse,
+    );
+    expect(
+      artistHasOwnReleases(
+        artistTracks: [tracks[0], tracks[1], tracks[2]],
+        libraryTracks: tracks,
+        isThisArtist: (name) => name.toLowerCase() == 'aikko',
+        cardName: (name) => name,
+      ),
+      isTrue,
+    );
+  });
+
+  test('computeArtistsWithOwnReleaseKeys matches per-artist helper', () {
+    final tracks = [
+      _track(
+        key: 'g',
+        title: 'Монстр',
+        artist: '[AMATORY], ATL',
+        album: 'Огонь',
+        albumArtist: '[AMATORY]',
+        number: 1,
+        trackTotal: 10,
+      ),
+      _track(
+        key: 'o',
+        title: 'Сжигая мосты',
+        artist: '[AMATORY]',
+        album: 'Огонь',
+        albumArtist: '[AMATORY]',
+        number: 2,
+        trackTotal: 10,
+      ),
+      _track(
+        key: 'a',
+        title: 'Solo',
+        artist: 'ATL',
+        album: 'Свой',
+        albumArtist: 'ATL',
+        number: 1,
+        trackTotal: 10,
+      ),
+      _track(
+        key: '2',
+        title: 'B',
+        artist: 'aikko, гость',
+        album: 'бэкрумс',
+        number: 2,
+      ),
+      _track(key: '1', title: 'A', artist: 'aikko', album: 'бэкрумс', number: 1),
+      _track(key: '3', title: 'C', artist: 'aikko', album: 'бэкрумс', number: 3),
+    ];
+    final keys = computeArtistsWithOwnReleaseKeys(
+      tracks,
+      cardName: (name) => name,
+    );
+    expect(keys.contains('atl'), isTrue);
+    expect(keys.contains('[amatory]'), isTrue);
+    expect(keys.contains('aikko'), isTrue);
+    expect(keys.contains('гость'), isFalse);
+  });
+
+  test('artistHasOwnReleases is true for shared album artists', () {
+    final tracks = [
+      _track(
+        key: '1',
+        title: 'Меньше пить',
+        artist: 'aikko, katanacss, INSPACE',
+        album: 'Подвох',
+        albumArtist: 'aikko, katanacss, INSPACE',
+        number: 1,
+        trackTotal: 12,
+      ),
+      _track(
+        key: '8',
+        title: 'Девчонка',
+        artist: 'aikko, katanacss, INSPACE, playingtheangel',
+        album: 'Подвох',
+        albumArtist: 'aikko, katanacss, INSPACE',
+        number: 8,
+        trackTotal: 12,
+      ),
+    ];
+    expect(
+      artistHasOwnReleases(
+        artistTracks: tracks,
+        libraryTracks: tracks,
+        isThisArtist: (name) => name.toLowerCase() == 'katanacss',
+        cardName: (name) => name,
+      ),
+      isTrue,
+    );
+    expect(
+      artistHasOwnReleases(
+        artistTracks: [tracks[1]],
+        libraryTracks: tracks,
+        isThisArtist: (name) => name.toLowerCase() == 'playingtheangel',
+        cardName: (name) => name,
+      ),
+      isFalse,
+    );
+  });
+
   test('album card lists every album artist, including a shorter tag', () {
     final release = ArtistRelease(
       title: 'Подвох',

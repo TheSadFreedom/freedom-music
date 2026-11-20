@@ -144,6 +144,7 @@ class LibraryService extends ChangeNotifier {
   List<Track>? _catalogCache;
   Map<String, List<Track>>? _genreCache;
   Map<String, List<Track>>? _artistCache;
+  Set<String>? _artistsWithOwnReleasesCache;
   Map<String, List<Track>>? _producerCache;
   Map<String, List<Track>>? _folderCache;
   List<ReleaseCalendarSection>? _calendarCache;
@@ -155,6 +156,7 @@ class LibraryService extends ChangeNotifier {
     _producerCache = null;
     _folderCache = null;
     _calendarCache = null;
+    _artistsWithOwnReleasesCache = null;
   }
 
   void _ensureTrackSlices() {
@@ -389,6 +391,16 @@ class LibraryService extends ChangeNotifier {
       for (final e in all.entries)
         if (!hidden.contains(e.key.toLowerCase())) e.key: e.value,
     };
+  }
+
+  /// Cached lowercase card keys with at least one own release (not guest-only).
+  bool artistCardHasOwnReleases(String cardName) {
+    _ensureTrackSlices();
+    final cache = _artistsWithOwnReleasesCache ??= computeArtistsWithOwnReleaseKeys(
+      _catalogCache!,
+      cardName: artistCardName,
+    );
+    return cache.contains(cardName.trim().toLowerCase());
   }
 
   CreativeCollective? collectiveById(String id) {

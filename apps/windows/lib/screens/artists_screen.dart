@@ -156,6 +156,11 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       ranked = ranked
           .where((r) => library.artistCardMatchesQuery(r.name, q))
           .toList();
+    } else {
+      // Hide guests who only appear on other artists' releases (cached set).
+      ranked = ranked
+          .where((r) => library.artistCardHasOwnReleases(r.name))
+          .toList();
     }
 
     int byName(_ArtistRow a, _ArtistRow b) =>
@@ -193,13 +198,8 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
     await _loadPlayCounts();
   }
 
-  int _crossAxisCount(double width) {
-    if (width >= 1500) return 6;
-    if (width >= 1200) return 5;
-    if (width >= 920) return 4;
-    if (width >= 640) return 3;
-    return 2;
-  }
+  static const _cardWidth = 336.0;
+  static const _cardHeight = 432.0;
 
   @override
   Widget build(BuildContext context) {
@@ -285,40 +285,36 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                         ),
                       ),
                     )
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        final count = _crossAxisCount(constraints.maxWidth);
-                        return GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: count,
-                            crossAxisSpacing: 14,
-                            mainAxisSpacing: 16,
-                            childAspectRatio: 0.78,
-                          ),
-                          itemCount: rows.length,
-                          itemBuilder: (context, index) {
-                            final row = rows[index];
-                            final highlight = _sort == _ArtistSort.plays &&
-                                row.rank > 0 &&
-                                row.rank <= 3;
-                            final photo = library.artistPhotoPath(row.name) ??
-                                row.coverFromTracks();
-                            return _ArtistTile(
-                              index: index + 1,
-                              row: row,
-                              photoPath: photo,
-                              highlight: highlight,
-                              tracksLabel:
-                                  '${_number.format(row.trackCount)} ${_trackWord(row.trackCount)}',
-                              playsLabel:
-                                  '${_number.format(row.playCount)} ${_listenWord(row.playCount)}',
-                              onTap: () => _openArtist(row),
-                            );
-                          },
-                        );
-                      },
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 14,
+                        runSpacing: 16,
+                        children: [
+                          for (final entry in rows.asMap().entries)
+                            SizedBox(
+                              width: _cardWidth,
+                              height: _cardHeight,
+                              child: _ArtistTile(
+                                index: entry.key + 1,
+                                row: entry.value,
+                                photoPath: library.artistPhotoPath(
+                                      entry.value.name,
+                                    ) ??
+                                    entry.value.coverFromTracks(),
+                                highlight: _sort == _ArtistSort.plays &&
+                                    entry.value.rank > 0 &&
+                                    entry.value.rank <= 3,
+                                tracksLabel:
+                                    '${_number.format(entry.value.trackCount)} ${_trackWord(entry.value.trackCount)}',
+                                playsLabel:
+                                    '${_number.format(entry.value.playCount)} ${_listenWord(entry.value.playCount)}',
+                                onTap: () => _openArtist(entry.value),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
         ),
       ],
@@ -355,7 +351,7 @@ class _ArtistSortSwitcher extends StatelessWidget {
   final _ArtistSort selected;
   final ValueChanged<_ArtistSort> onChanged;
 
-  static const _accent = Color(0xFFFFDB4D);
+  static const _accent = AppTheme.lime;
 
   @override
   Widget build(BuildContext context) {

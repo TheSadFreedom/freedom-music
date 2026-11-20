@@ -245,6 +245,116 @@ ArtistReleaseGroups groupArtistReleases({
   );
 }
 
+/// Whether [artistTracks] include at least one own album/EP/single
+/// (same ownership rules as [groupArtistReleases], early exit).
+bool artistHasOwnReleases({
+  required List<Track> artistTracks,
+  required Iterable<Track> libraryTracks,
+  required bool Function(String name) isThisArtist,
+  required String Function(String name) cardName,
+}) {
+  if (artistTracks.isEmpty) return false;
+
+  final byKey = <String, Track>{};
+  for (final track in artistTracks) {
+    byKey[track.trackKey] = track;
+  }
+  for (final track in libraryTracks) {
+    byKey[track.trackKey] = track;
+  }
+
+  final byAlbum = <String, List<Track>>{};
+  for (final track in byKey.values) {
+    if (track.displayAlbum.toLowerCase() == 'unknown') continue;
+    byAlbum.putIfAbsent(track.displayAlbum.toLowerCase(), () => []).add(track);
+  }
+
+  final used = <String>{};
+
+  for (final group in byAlbum.values) {
+    for (final cluster in _albumClusters(group, cardName)) {
+      final owners = _clusterOwners(cluster, cardName);
+      final mine = cluster.where((track) {
+        return track.artists.any(isThisArtist);
+      });
+      final hasMine = mine.isNotEmpty;
+      final isOwner = owners.any(isThisArtist);
+      if (!hasMine && !isOwner) continue;
+
+      if (isOwner) return true;
+
+      if (hasMine && owners.isNotEmpty) {
+        for (final track in mine) {
+          used.add(track.trackKey);
+        }
+      }
+    }
+  }
+
+  return artistTracks.any((track) => !used.contains(track.trackKey));
+}
+
+/// Lowercase card keys of artists who have at least one own release.
+///
+/// One pass over [libraryTracks] — use this for the Artists catalog filter
+/// instead of calling [artistHasOwnReleases] per card.
+Set<String> computeArtistsWithOwnReleaseKeys(
+  Iterable<Track> libraryTracks, {
+  required String Function(String name) cardName,
+}) {
+  final tracks = libraryTracks.toList(growable: false);
+  if (tracks.isEmpty) return const {};
+
+  final byAlbum = <String, List<Track>>{};
+  for (final track in tracks) {
+    if (track.displayAlbum.toLowerCase() == 'unknown') continue;
+    byAlbum.putIfAbsent(track.displayAlbum.toLowerCase(), () => []).add(track);
+  }
+
+  // artistKey → trackKeys that only count as guest appearances for them
+  final appearanceKeys = <String, Set<String>>{};
+  final own = <String>{};
+
+  for (final group in byAlbum.values) {
+    for (final cluster in _albumClusters(group, cardName)) {
+      final owners = _clusterOwners(cluster, cardName);
+      final ownerKeys = <String>{
+        for (final name in owners) name.trim().toLowerCase(),
+      }..removeWhere((k) => k.isEmpty || k == 'unknown');
+
+      for (final key in ownerKeys) {
+        own.add(key);
+      }
+
+      if (ownerKeys.isEmpty) continue;
+
+      for (final track in cluster) {
+        final seen = <String>{};
+        for (final raw in track.artists) {
+          final key = cardName(raw).trim().toLowerCase();
+          if (key.isEmpty || key == 'unknown' || !seen.add(key)) continue;
+          if (ownerKeys.contains(key)) continue;
+          appearanceKeys.putIfAbsent(key, () => {}).add(track.trackKey);
+        }
+      }
+    }
+  }
+
+  for (final track in tracks) {
+    final seen = <String>{};
+    for (final raw in track.artists) {
+      final key = cardName(raw).trim().toLowerCase();
+      if (key.isEmpty || key == 'unknown' || !seen.add(key)) continue;
+      final guestOnly = appearanceKeys[key];
+      if (guestOnly == null || !guestOnly.contains(track.trackKey)) {
+        own.add(key);
+      }
+    }
+  }
+
+  return own;
+}
+
 /// One list when every tagged track agrees on at least one album artist.
 /// Otherwise each distinct album-artist tag is its own release.
 List<List<Track>> _albumClusters(
